@@ -1,3 +1,4 @@
+use crate::core::{Texture, TextureFormat};
 use crate::math::{Mat4, Vec3};
 use crate::scene::{Camera, Mesh, Vertex};
 use objc2::msg_send;
@@ -10,8 +11,9 @@ use objc2_metal::{
     MTLCompileOptions, MTLCreateSystemDefaultDevice, MTLDepthStencilDescriptor,
     MTLDepthStencilState, MTLDevice, MTLDrawable, MTLIndexType, MTLLibrary, MTLLoadAction,
     MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
-    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLStoreAction,
-    MTLTexture, MTLTextureDescriptor, MTLTextureUsage, MTLVertexDescriptor,
+    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSamplerDescriptor,
+    MTLSamplerMinMagFilter, MTLSamplerState, MTLStoreAction, MTLTexture, MTLTextureDescriptor,
+    MTLTextureUsage, MTLVertexDescriptor,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use winit::raw_window_handle::RawWindowHandle;
@@ -31,6 +33,8 @@ pub struct CubeRenderer {
     index_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
     uniform_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
     depth_texture: Option<Retained<ProtocolObject<dyn MTLTexture>>>,
+    texture: Texture,
+    sampler_state: Retained<ProtocolObject<dyn MTLSamplerState>>,
     drawable_size: (u32, u32),
     camera: Camera,
 }
@@ -55,6 +59,9 @@ impl CubeRenderer {
         let depth_stencil_state = Self::create_depth_stencil_state(&device)?;
         let depth_texture = Self::create_depth_texture(&device, width, height)?;
 
+        let texture = Self::create_checkerboard_texture(&device)?;
+        let sampler_state = Self::create_sampler_state(&device)?;
+
         let aspect_ratio = width as f32 / height as f32;
         let camera = Camera::new(
             Vec3::new(2.0, 2.0, 2.0),
@@ -72,6 +79,8 @@ impl CubeRenderer {
             index_buffer,
             uniform_buffer,
             depth_texture: Some(depth_texture),
+            texture,
+            sampler_state,
             drawable_size: (width, height),
             camera,
         })
@@ -247,6 +256,42 @@ impl CubeRenderer {
         Ok(texture)
     }
 
+    fn create_checkerboard_texture(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Texture, String> {
+        const SIZE: u32 = 64;
+        const CHECKER_SIZE: u32 = 8;
+        let mut data = vec![0u8; (SIZE * SIZE * 4) as usize];
+
+        for y in 0..SIZE {
+            for x in 0..SIZE {
+                let is_white = ((x / CHECKER_SIZE) + (y / CHECKER_SIZE)) % 2 == 0;
+                let color = if is_white { 255u8 } else { 0u8 };
+                let idx = ((y * SIZE + x) * 4) as usize;
+                data[idx] = color; // R
+                data[idx + 1] = color; // G
+                data[idx + 2] = color; // B
+                data[idx + 3] = 255; // A
+            }
+        }
+
+        Texture::create_from_data(device, &data, SIZE, SIZE, TextureFormat::Rgba8)
+    }
+
+    fn create_sampler_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLSamplerState>>, String> {
+        let descriptor = MTLSamplerDescriptor::new();
+        descriptor.setMinFilter(MTLSamplerMinMagFilter::Linear);
+        descriptor.setMagFilter(MTLSamplerMinMagFilter::Linear);
+
+        let sampler = device
+            .newSamplerStateWithDescriptor(&descriptor)
+            .ok_or_else(|| "Failed to create sampler state".to_string())?;
+
+        Ok(sampler)
+    }
+
     pub fn render(&mut self) -> Result<(), String> {
         let drawable = unsafe { self.layer.nextDrawable() }
             .ok_or_else(|| "Failed to get next drawable".to_string())?;
@@ -310,6 +355,9 @@ impl CubeRenderer {
             unsafe {
                 render_encoder.setVertexBuffer_offset_atIndex(Some(&self.vertex_buffer), 0, 0);
                 render_encoder.setVertexBuffer_offset_atIndex(Some(&self.uniform_buffer), 0, 1);
+
+                render_encoder.setFragmentTexture_atIndex(Some(&self.texture.texture), 0);
+                render_encoder.setFragmentSamplerState_atIndex(Some(&self.sampler_state), 0);
 
                 render_encoder
                     .drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(

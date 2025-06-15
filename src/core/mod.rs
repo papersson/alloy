@@ -1,3 +1,7 @@
+mod texture;
+
+pub use texture::{Texture, TextureFormat};
+
 use std::time::Instant;
 
 pub struct Timer {

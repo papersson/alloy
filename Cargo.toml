@@ -11,3 +11,4 @@ objc2-foundation = "0.3.1"
 objc2-metal = "0.3.1"
 objc2-quartz-core = "0.3.1"
 winit = "0.30.11"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

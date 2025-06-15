@@ -25,7 +25,11 @@ vertex VertexOut cube_vertex(
     return out;
 }
 
-fragment float4 cube_fragment(VertexOut in [[stage_in]]) {
-    // For now, just use texture coordinates as color
-    return float4(in.tex_coord.x, in.tex_coord.y, 0.5, 1.0);
+fragment float4 cube_fragment(
+    VertexOut in [[stage_in]],
+    texture2d<float> tex [[texture(0)]],
+    sampler tex_sampler [[sampler(0)]]
+) {
+    float4 color = tex.sample(tex_sampler, in.tex_coord);
+    return color;
 }
