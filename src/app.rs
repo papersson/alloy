@@ -113,13 +113,21 @@ impl ApplicationHandler for App {
                             match SceneRenderer::new(handle.as_raw(), size.width, size.height) {
                                 Ok(renderer) => {
                                     // Create UI renderer using the same device
-                                    let ui_renderer = UIRenderer::new(renderer.device());
-                                    ui_renderer
-                                        .update_projection(size.width as f32, size.height as f32);
+                                    match UIRenderer::new(renderer.device()) {
+                                        Ok(ui_renderer) => {
+                                            ui_renderer.update_projection(
+                                                size.width as f32,
+                                                size.height as f32,
+                                            );
 
-                                    self.renderer = Some(renderer);
-                                    self.ui_renderer = Some(ui_renderer);
-                                    log!("Renderer initialized successfully");
+                                            self.renderer = Some(renderer);
+                                            self.ui_renderer = Some(ui_renderer);
+                                            log!("Renderer initialized successfully");
+                                        }
+                                        Err(e) => {
+                                            log!("Failed to initialize UI renderer: {}", e);
+                                        }
+                                    }
                                     window.request_redraw();
                                 }
                                 Err(e) => {

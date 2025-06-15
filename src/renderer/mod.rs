@@ -90,9 +90,12 @@ impl Renderer {
         let vertex_data = vertices.as_ptr().cast::<std::ffi::c_void>();
         let vertex_data_size = std::mem::size_of_val(&vertices);
 
+        let data_ptr = std::ptr::NonNull::new(vertex_data.cast_mut())
+            .ok_or_else(|| "Failed to create NonNull pointer for vertex data".to_string())?;
+
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
-                std::ptr::NonNull::new(vertex_data.cast_mut()).unwrap(),
+                data_ptr,
                 vertex_data_size,
                 MTLResourceOptions::CPUCacheModeDefaultCache,
             )

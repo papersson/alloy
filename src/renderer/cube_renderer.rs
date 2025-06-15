@@ -119,9 +119,12 @@ impl CubeRenderer {
         let vertex_data = mesh.vertices.as_ptr().cast::<std::ffi::c_void>();
         let vertex_data_size = std::mem::size_of_val(&mesh.vertices[..]);
 
+        let data_ptr = std::ptr::NonNull::new(vertex_data.cast_mut())
+            .ok_or_else(|| "Failed to create NonNull pointer for vertex data".to_string())?;
+
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
-                std::ptr::NonNull::new(vertex_data.cast_mut()).unwrap(),
+                data_ptr,
                 vertex_data_size,
                 MTLResourceOptions::CPUCacheModeDefaultCache,
             )
@@ -138,9 +141,12 @@ impl CubeRenderer {
         let index_data = mesh.indices.as_ptr().cast::<std::ffi::c_void>();
         let index_data_size = std::mem::size_of_val(&mesh.indices[..]);
 
+        let data_ptr = std::ptr::NonNull::new(index_data.cast_mut())
+            .ok_or_else(|| "Failed to create NonNull pointer for index data".to_string())?;
+
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
-                std::ptr::NonNull::new(index_data.cast_mut()).unwrap(),
+                data_ptr,
                 index_data_size,
                 MTLResourceOptions::CPUCacheModeDefaultCache,
             )

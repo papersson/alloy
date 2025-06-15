@@ -4,7 +4,7 @@ use crate::math::{Mat4, Vec2};
 use font::BitmapFont;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::{MTLBuffer, MTLDevice, MTLRenderCommandEncoder, MTLTexture};
+use objc2_metal::{MTLBuffer, MTLDevice, MTLTexture};
 
 pub struct UIRenderer {
     vertex_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
@@ -32,7 +32,7 @@ pub struct UIUniforms {
 }
 
 impl UIRenderer {
-    pub fn new(device: &ProtocolObject<dyn MTLDevice>) -> Self {
+    pub fn new(device: &ProtocolObject<dyn MTLDevice>) -> Result<Self, String> {
         let max_vertices = 4096;
         let max_indices = 6144;
 
@@ -41,25 +41,25 @@ impl UIRenderer {
                 max_vertices * std::mem::size_of::<UIVertex>(),
                 objc2_metal::MTLResourceOptions::CPUCacheModeWriteCombined,
             )
-            .expect("Failed to create vertex buffer");
+            .ok_or_else(|| "Failed to create vertex buffer".to_string())?;
 
         let index_buffer = device
             .newBufferWithLength_options(
                 max_indices * std::mem::size_of::<u16>(),
                 objc2_metal::MTLResourceOptions::CPUCacheModeWriteCombined,
             )
-            .expect("Failed to create index buffer");
+            .ok_or_else(|| "Failed to create index buffer".to_string())?;
 
         let uniform_buffer = device
             .newBufferWithLength_options(
                 std::mem::size_of::<UIUniforms>(),
                 objc2_metal::MTLResourceOptions::CPUCacheModeWriteCombined,
             )
-            .expect("Failed to create uniform buffer");
+            .ok_or_else(|| "Failed to create uniform buffer".to_string())?;
 
-        let font = BitmapFont::create_default(device);
+        let font = BitmapFont::create_default(device)?;
 
-        Self {
+        Ok(Self {
             vertex_buffer,
             index_buffer,
             uniform_buffer,
@@ -68,7 +68,7 @@ impl UIRenderer {
             indices: Vec::with_capacity(max_indices),
             vertex_count: 0,
             index_count: 0,
-        }
+        })
     }
 
     pub fn update_projection(&self, width: f32, height: f32) {

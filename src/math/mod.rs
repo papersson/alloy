@@ -178,9 +178,11 @@ impl Mat4 {
             for j in 0..4 {
                 let mut sum = 0.0;
                 for k in 0..4 {
-                    sum += self.get(i, k) * other.get(k, j);
+                    // Safe to unwrap here as we know indices are in bounds
+                    sum += self.get(i, k).unwrap_or(0.0) * other.get(k, j).unwrap_or(0.0);
                 }
-                result.set(i, j, sum);
+                // Safe to unwrap here as we know indices are in bounds
+                let _ = result.set(i, j, sum);
             }
         }
         result
@@ -209,47 +211,95 @@ impl Mat4 {
     }
 
     #[must_use]
-    pub fn get(&self, row: usize, col: usize) -> f32 {
+    pub fn get(&self, row: usize, col: usize) -> Result<f32, String> {
         match (row, col) {
-            (0, 0) => self.cols[0].x,
-            (1, 0) => self.cols[0].y,
-            (2, 0) => self.cols[0].z,
-            (3, 0) => self.cols[0].w,
-            (0, 1) => self.cols[1].x,
-            (1, 1) => self.cols[1].y,
-            (2, 1) => self.cols[1].z,
-            (3, 1) => self.cols[1].w,
-            (0, 2) => self.cols[2].x,
-            (1, 2) => self.cols[2].y,
-            (2, 2) => self.cols[2].z,
-            (3, 2) => self.cols[2].w,
-            (0, 3) => self.cols[3].x,
-            (1, 3) => self.cols[3].y,
-            (2, 3) => self.cols[3].z,
-            (3, 3) => self.cols[3].w,
-            _ => panic!("Index out of bounds"),
+            (0, 0) => Ok(self.cols[0].x),
+            (1, 0) => Ok(self.cols[0].y),
+            (2, 0) => Ok(self.cols[0].z),
+            (3, 0) => Ok(self.cols[0].w),
+            (0, 1) => Ok(self.cols[1].x),
+            (1, 1) => Ok(self.cols[1].y),
+            (2, 1) => Ok(self.cols[1].z),
+            (3, 1) => Ok(self.cols[1].w),
+            (0, 2) => Ok(self.cols[2].x),
+            (1, 2) => Ok(self.cols[2].y),
+            (2, 2) => Ok(self.cols[2].z),
+            (3, 2) => Ok(self.cols[2].w),
+            (0, 3) => Ok(self.cols[3].x),
+            (1, 3) => Ok(self.cols[3].y),
+            (2, 3) => Ok(self.cols[3].z),
+            (3, 3) => Ok(self.cols[3].w),
+            _ => Err(format!("Matrix index out of bounds: ({}, {})", row, col)),
         }
     }
 
-    pub fn set(&mut self, row: usize, col: usize, value: f32) {
+    pub fn set(&mut self, row: usize, col: usize, value: f32) -> Result<(), String> {
         match (row, col) {
-            (0, 0) => self.cols[0].x = value,
-            (1, 0) => self.cols[0].y = value,
-            (2, 0) => self.cols[0].z = value,
-            (3, 0) => self.cols[0].w = value,
-            (0, 1) => self.cols[1].x = value,
-            (1, 1) => self.cols[1].y = value,
-            (2, 1) => self.cols[1].z = value,
-            (3, 1) => self.cols[1].w = value,
-            (0, 2) => self.cols[2].x = value,
-            (1, 2) => self.cols[2].y = value,
-            (2, 2) => self.cols[2].z = value,
-            (3, 2) => self.cols[2].w = value,
-            (0, 3) => self.cols[3].x = value,
-            (1, 3) => self.cols[3].y = value,
-            (2, 3) => self.cols[3].z = value,
-            (3, 3) => self.cols[3].w = value,
-            _ => panic!("Index out of bounds"),
+            (0, 0) => {
+                self.cols[0].x = value;
+                Ok(())
+            }
+            (1, 0) => {
+                self.cols[0].y = value;
+                Ok(())
+            }
+            (2, 0) => {
+                self.cols[0].z = value;
+                Ok(())
+            }
+            (3, 0) => {
+                self.cols[0].w = value;
+                Ok(())
+            }
+            (0, 1) => {
+                self.cols[1].x = value;
+                Ok(())
+            }
+            (1, 1) => {
+                self.cols[1].y = value;
+                Ok(())
+            }
+            (2, 1) => {
+                self.cols[1].z = value;
+                Ok(())
+            }
+            (3, 1) => {
+                self.cols[1].w = value;
+                Ok(())
+            }
+            (0, 2) => {
+                self.cols[2].x = value;
+                Ok(())
+            }
+            (1, 2) => {
+                self.cols[2].y = value;
+                Ok(())
+            }
+            (2, 2) => {
+                self.cols[2].z = value;
+                Ok(())
+            }
+            (3, 2) => {
+                self.cols[2].w = value;
+                Ok(())
+            }
+            (0, 3) => {
+                self.cols[3].x = value;
+                Ok(())
+            }
+            (1, 3) => {
+                self.cols[3].y = value;
+                Ok(())
+            }
+            (2, 3) => {
+                self.cols[3].z = value;
+                Ok(())
+            }
+            (3, 3) => {
+                self.cols[3].w = value;
+                Ok(())
+            }
+            _ => Err(format!("Matrix index out of bounds: ({}, {})", row, col)),
         }
     }
 
@@ -404,5 +454,452 @@ impl Transform {
 impl Default for Transform {
     fn default() -> Self {
         Self::identity()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod vec2_tests {
+        use super::*;
+
+        #[test]
+        fn test_new() {
+            let v = Vec2::new(1.0, 2.0);
+            assert_eq!(v.x, 1.0);
+            assert_eq!(v.y, 2.0);
+        }
+
+        #[test]
+        fn test_zero() {
+            let v = Vec2::zero();
+            assert_eq!(v.x, 0.0);
+            assert_eq!(v.y, 0.0);
+        }
+
+        #[test]
+        fn test_default() {
+            let v = Vec2::default();
+            assert_eq!(v.x, 0.0);
+            assert_eq!(v.y, 0.0);
+        }
+
+        #[test]
+        fn test_equality() {
+            let v1 = Vec2::new(1.0, 2.0);
+            let v2 = Vec2::new(1.0, 2.0);
+            let v3 = Vec2::new(1.0, 3.0);
+            assert_eq!(v1, v2);
+            assert_ne!(v1, v3);
+        }
+    }
+
+    mod vec3_tests {
+        use super::*;
+
+        #[test]
+        fn test_new() {
+            let v = Vec3::new(1.0, 2.0, 3.0);
+            assert_eq!(v.x, 1.0);
+            assert_eq!(v.y, 2.0);
+            assert_eq!(v.z, 3.0);
+        }
+
+        #[test]
+        fn test_zero() {
+            let v = Vec3::zero();
+            assert_eq!(v.x, 0.0);
+            assert_eq!(v.y, 0.0);
+            assert_eq!(v.z, 0.0);
+        }
+
+        #[test]
+        fn test_default() {
+            let v = Vec3::default();
+            assert_eq!(v.x, 0.0);
+            assert_eq!(v.y, 0.0);
+            assert_eq!(v.z, 0.0);
+        }
+
+        #[test]
+        fn test_add() {
+            let v1 = Vec3::new(1.0, 2.0, 3.0);
+            let v2 = Vec3::new(4.0, 5.0, 6.0);
+            let result = v1.add(&v2);
+            assert_eq!(result.x, 5.0);
+            assert_eq!(result.y, 7.0);
+            assert_eq!(result.z, 9.0);
+        }
+
+        #[test]
+        fn test_sub() {
+            let v1 = Vec3::new(4.0, 5.0, 6.0);
+            let v2 = Vec3::new(1.0, 2.0, 3.0);
+            let result = v1.sub(&v2);
+            assert_eq!(result.x, 3.0);
+            assert_eq!(result.y, 3.0);
+            assert_eq!(result.z, 3.0);
+        }
+
+        #[test]
+        fn test_scale() {
+            let v = Vec3::new(1.0, 2.0, 3.0);
+            let result = v.scale(2.0);
+            assert_eq!(result.x, 2.0);
+            assert_eq!(result.y, 4.0);
+            assert_eq!(result.z, 6.0);
+        }
+
+        #[test]
+        fn test_dot() {
+            let v1 = Vec3::new(1.0, 2.0, 3.0);
+            let v2 = Vec3::new(4.0, 5.0, 6.0);
+            let result = v1.dot(&v2);
+            assert_eq!(result, 32.0); // 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+        }
+
+        #[test]
+        fn test_cross() {
+            let v1 = Vec3::new(1.0, 0.0, 0.0);
+            let v2 = Vec3::new(0.0, 1.0, 0.0);
+            let result = v1.cross(&v2);
+            assert_eq!(result.x, 0.0);
+            assert_eq!(result.y, 0.0);
+            assert_eq!(result.z, 1.0);
+
+            // Test anti-commutativity
+            let result2 = v2.cross(&v1);
+            assert_eq!(result2.x, 0.0);
+            assert_eq!(result2.y, 0.0);
+            assert_eq!(result2.z, -1.0);
+        }
+
+        #[test]
+        fn test_length() {
+            let v = Vec3::new(3.0, 4.0, 0.0);
+            assert_eq!(v.length(), 5.0); // 3-4-5 triangle
+
+            let v2 = Vec3::new(1.0, 2.0, 2.0);
+            assert_eq!(v2.length(), 3.0); // sqrt(1 + 4 + 4) = 3
+        }
+
+        #[test]
+        fn test_normalize() {
+            let v = Vec3::new(3.0, 4.0, 0.0);
+            let normalized = v.normalize();
+            assert!((normalized.length() - 1.0).abs() < 1e-6);
+            assert_eq!(normalized.x, 0.6);
+            assert_eq!(normalized.y, 0.8);
+            assert_eq!(normalized.z, 0.0);
+        }
+
+        #[test]
+        fn test_normalize_zero_vector() {
+            let v = Vec3::zero();
+            let normalized = v.normalize();
+            assert_eq!(normalized, v); // Zero vector should remain zero
+        }
+    }
+
+    mod vec4_tests {
+        use super::*;
+
+        #[test]
+        fn test_new() {
+            let v = Vec4::new(1.0, 2.0, 3.0, 4.0);
+            assert_eq!(v.x, 1.0);
+            assert_eq!(v.y, 2.0);
+            assert_eq!(v.z, 3.0);
+            assert_eq!(v.w, 4.0);
+        }
+
+        #[test]
+        fn test_zero() {
+            let v = Vec4::zero();
+            assert_eq!(v.x, 0.0);
+            assert_eq!(v.y, 0.0);
+            assert_eq!(v.z, 0.0);
+            assert_eq!(v.w, 0.0);
+        }
+
+        #[test]
+        fn test_default() {
+            let v = Vec4::default();
+            assert_eq!(v.x, 0.0);
+            assert_eq!(v.y, 0.0);
+            assert_eq!(v.z, 0.0);
+            assert_eq!(v.w, 0.0);
+        }
+
+        #[test]
+        fn test_from_vec3() {
+            let v3 = Vec3::new(1.0, 2.0, 3.0);
+            let v4: Vec4 = v3.into();
+            assert_eq!(v4.x, 1.0);
+            assert_eq!(v4.y, 2.0);
+            assert_eq!(v4.z, 3.0);
+            assert_eq!(v4.w, 1.0);
+        }
+
+        #[test]
+        fn test_dot() {
+            let v1 = Vec4::new(1.0, 2.0, 3.0, 4.0);
+            let v2 = Vec4::new(5.0, 6.0, 7.0, 8.0);
+            let result = v1.dot(&v2);
+            assert_eq!(result, 70.0); // 1*5 + 2*6 + 3*7 + 4*8 = 5 + 12 + 21 + 32 = 70
+        }
+    }
+
+    mod mat4_tests {
+        use super::*;
+
+        #[test]
+        fn test_identity() {
+            let m = Mat4::identity();
+            assert_eq!(m.get(0, 0).unwrap(), 1.0);
+            assert_eq!(m.get(1, 1).unwrap(), 1.0);
+            assert_eq!(m.get(2, 2).unwrap(), 1.0);
+            assert_eq!(m.get(3, 3).unwrap(), 1.0);
+            assert_eq!(m.get(0, 1).unwrap(), 0.0);
+            assert_eq!(m.get(1, 0).unwrap(), 0.0);
+        }
+
+        #[test]
+        fn test_zero() {
+            let m = Mat4::zero();
+            for i in 0..4 {
+                for j in 0..4 {
+                    assert_eq!(m.get(i, j).unwrap(), 0.0);
+                }
+            }
+        }
+
+        #[test]
+        fn test_default() {
+            let m = Mat4::default();
+            assert_eq!(m, Mat4::identity());
+        }
+
+        #[test]
+        fn test_multiply_identity() {
+            let m = Mat4::identity();
+            let result = m.multiply(&m);
+            assert_eq!(result, Mat4::identity());
+        }
+
+        #[test]
+        fn test_multiply_vec4() {
+            let m = Mat4::identity();
+            let v = Vec4::new(1.0, 2.0, 3.0, 4.0);
+            let result = m.multiply_vec4(&v);
+            assert_eq!(result, v); // Identity matrix should not change vector
+        }
+
+        #[test]
+        fn test_translation() {
+            let m = Mat4::translation(1.0, 2.0, 3.0);
+            let v = Vec4::new(0.0, 0.0, 0.0, 1.0);
+            let result = m.multiply_vec4(&v);
+            assert_eq!(result.x, 1.0);
+            assert_eq!(result.y, 2.0);
+            assert_eq!(result.z, 3.0);
+            assert_eq!(result.w, 1.0);
+        }
+
+        #[test]
+        fn test_scale() {
+            let m = Mat4::scale(2.0, 3.0, 4.0);
+            let v = Vec4::new(1.0, 1.0, 1.0, 1.0);
+            let result = m.multiply_vec4(&v);
+            assert_eq!(result.x, 2.0);
+            assert_eq!(result.y, 3.0);
+            assert_eq!(result.z, 4.0);
+            assert_eq!(result.w, 1.0);
+        }
+
+        #[test]
+        fn test_rotation_x() {
+            let angle = std::f32::consts::PI / 2.0; // 90 degrees
+            let m = Mat4::rotation_x(angle);
+            let v = Vec4::new(0.0, 1.0, 0.0, 1.0);
+            let result = m.multiply_vec4(&v);
+
+            // Rotation matrix around X: Y -> -Z
+            assert!((result.x - 0.0).abs() < 1e-6);
+            assert!((result.y - 0.0).abs() < 1e-6);
+            assert!((result.z - -1.0).abs() < 1e-6);
+            assert!((result.w - 1.0).abs() < 1e-6);
+        }
+
+        #[test]
+        fn test_rotation_y() {
+            let angle = std::f32::consts::PI / 2.0; // 90 degrees
+            let m = Mat4::rotation_y(angle);
+            let v = Vec4::new(1.0, 0.0, 0.0, 1.0);
+            let result = m.multiply_vec4(&v);
+            assert!((result.x - 0.0).abs() < 1e-6);
+            assert!((result.y - 0.0).abs() < 1e-6);
+            assert!((result.z - 1.0).abs() < 1e-6); // Rotating X by 90 degrees around Y gives Z
+            assert!((result.w - 1.0).abs() < 1e-6);
+        }
+
+        #[test]
+        fn test_rotation_z() {
+            let angle = std::f32::consts::PI / 2.0; // 90 degrees
+            let m = Mat4::rotation_z(angle);
+            let v = Vec4::new(1.0, 0.0, 0.0, 1.0);
+            let result = m.multiply_vec4(&v);
+            assert!((result.x - 0.0).abs() < 1e-6);
+            assert!((result.y - -1.0).abs() < 1e-6); // Rotating X by 90 degrees around Z gives -Y
+            assert!((result.z - 0.0).abs() < 1e-6);
+            assert!((result.w - 1.0).abs() < 1e-6);
+        }
+
+        #[test]
+        fn test_perspective() {
+            let fov = std::f32::consts::PI / 2.0; // 90 degrees
+            let aspect = 16.0 / 9.0;
+            let near = 0.1;
+            let far = 100.0;
+            let m = Mat4::perspective(fov, aspect, near, far);
+
+            // Test that it's not identity or zero
+            assert_ne!(m, Mat4::identity());
+            assert_ne!(m, Mat4::zero());
+
+            // Basic sanity check
+            assert!(m.get(0, 0).unwrap() > 0.0);
+            assert!(m.get(1, 1).unwrap() > 0.0);
+        }
+
+        #[test]
+        fn test_orthographic() {
+            let m = Mat4::orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
+
+            // Test that it's not identity or zero
+            assert_ne!(m, Mat4::identity());
+            assert_ne!(m, Mat4::zero());
+
+            // Basic sanity check
+            assert_eq!(m.get(0, 0).unwrap(), 1.0);
+            assert_eq!(m.get(1, 1).unwrap(), 1.0);
+        }
+
+        #[test]
+        fn test_look_at() {
+            let eye = Vec3::new(0.0, 0.0, 5.0);
+            let center = Vec3::new(0.0, 0.0, 0.0);
+            let up = Vec3::new(0.0, 1.0, 0.0);
+            let m = Mat4::look_at(&eye, &center, &up);
+
+            // Test that it's not identity or zero
+            assert_ne!(m, Mat4::identity());
+            assert_ne!(m, Mat4::zero());
+        }
+
+        #[test]
+        fn test_get_set() {
+            let mut m = Mat4::zero();
+            assert!(m.set(1, 2, 5.0).is_ok());
+            assert_eq!(m.get(1, 2).unwrap(), 5.0);
+
+            assert!(m.set(3, 3, 10.0).is_ok());
+            assert_eq!(m.get(3, 3).unwrap(), 10.0);
+        }
+
+        #[test]
+        fn test_get_out_of_bounds() {
+            let m = Mat4::identity();
+            assert!(m.get(4, 0).is_err());
+            assert!(m.get(0, 4).is_err());
+            assert!(m.get(5, 5).is_err());
+        }
+
+        #[test]
+        fn test_set_out_of_bounds() {
+            let mut m = Mat4::identity();
+            assert!(m.set(0, 4, 1.0).is_err());
+            assert!(m.set(4, 0, 1.0).is_err());
+            assert!(m.set(5, 5, 1.0).is_err());
+        }
+    }
+
+    mod transform_tests {
+        use super::*;
+
+        #[test]
+        fn test_new() {
+            let pos = Vec3::new(1.0, 2.0, 3.0);
+            let rot = Vec3::new(0.1, 0.2, 0.3);
+            let scale = Vec3::new(2.0, 2.0, 2.0);
+            let t = Transform::new(pos, rot, scale);
+            assert_eq!(t.position, pos);
+            assert_eq!(t.rotation, rot);
+            assert_eq!(t.scale, scale);
+        }
+
+        #[test]
+        fn test_identity() {
+            let t = Transform::identity();
+            assert_eq!(t.position, Vec3::zero());
+            assert_eq!(t.rotation, Vec3::zero());
+            assert_eq!(t.scale, Vec3::new(1.0, 1.0, 1.0));
+        }
+
+        #[test]
+        fn test_default() {
+            let t = Transform::default();
+            assert_eq!(t, Transform::identity());
+        }
+
+        #[test]
+        fn test_to_matrix_identity() {
+            let t = Transform::identity();
+            let m = t.to_matrix();
+            assert_eq!(m, Mat4::identity());
+        }
+
+        #[test]
+        fn test_to_matrix_translation_only() {
+            let t = Transform {
+                position: Vec3::new(1.0, 2.0, 3.0),
+                rotation: Vec3::zero(),
+                scale: Vec3::new(1.0, 1.0, 1.0),
+            };
+            let m = t.to_matrix();
+            let expected = Mat4::translation(1.0, 2.0, 3.0);
+            assert_eq!(m, expected);
+        }
+
+        #[test]
+        fn test_to_matrix_scale_only() {
+            let t = Transform {
+                position: Vec3::zero(),
+                rotation: Vec3::zero(),
+                scale: Vec3::new(2.0, 3.0, 4.0),
+            };
+            let m = t.to_matrix();
+            let expected = Mat4::scale(2.0, 3.0, 4.0);
+            assert_eq!(m, expected);
+        }
+
+        #[test]
+        fn test_to_matrix_combined() {
+            let t = Transform {
+                position: Vec3::new(1.0, 0.0, 0.0),
+                rotation: Vec3::zero(),
+                scale: Vec3::new(2.0, 2.0, 2.0),
+            };
+            let m = t.to_matrix();
+
+            // Test that a point at origin scales then translates correctly
+            let v = Vec4::new(1.0, 0.0, 0.0, 1.0);
+            let result = m.multiply_vec4(&v);
+            assert_eq!(result.x, 3.0); // 1 * 2 + 1 = 3
+            assert_eq!(result.y, 0.0);
+            assert_eq!(result.z, 0.0);
+            assert_eq!(result.w, 1.0);
+        }
     }
 }

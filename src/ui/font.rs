@@ -12,7 +12,7 @@ pub struct BitmapFont {
 }
 
 impl BitmapFont {
-    pub fn create_default(device: &ProtocolObject<dyn MTLDevice>) -> Self {
+    pub fn create_default(device: &ProtocolObject<dyn MTLDevice>) -> Result<Self, String> {
         // Create a simple 8x8 font texture with ASCII characters
         // For now, we'll create a basic monospace font
         const FONT_SIZE: u32 = 8;
@@ -103,15 +103,14 @@ impl BitmapFont {
             TEXTURE_SIZE,
             TEXTURE_SIZE,
             crate::core::TextureFormat::Rgba8,
-        )
-        .expect("Failed to create font texture");
+        )?;
 
-        Self {
+        Ok(Self {
             texture: texture.texture,
             char_width: FONT_SIZE as f32,
             char_height: FONT_SIZE as f32,
             chars_per_row: CHARS_PER_ROW,
-        }
+        })
     }
 
     pub fn texture(&self) -> &ProtocolObject<dyn MTLTexture> {

@@ -67,10 +67,15 @@ impl Texture {
         };
 
         unsafe {
+            let data_ptr = std::ptr::NonNull::new(rgba_image.as_raw().as_ptr().cast_mut().cast())
+                .ok_or_else(|| {
+                "Failed to create NonNull pointer for texture data".to_string()
+            })?;
+
             texture.replaceRegion_mipmapLevel_withBytes_bytesPerRow(
                 region,
                 0,
-                std::ptr::NonNull::new(rgba_image.as_raw().as_ptr().cast_mut().cast()).unwrap(),
+                data_ptr,
                 bytes_per_row,
             );
         }
@@ -121,10 +126,13 @@ impl Texture {
         };
 
         unsafe {
+            let data_ptr = std::ptr::NonNull::new(data.as_ptr().cast_mut().cast())
+                .ok_or_else(|| "Failed to create NonNull pointer for texture data".to_string())?;
+
             texture.replaceRegion_mipmapLevel_withBytes_bytesPerRow(
                 region,
                 0,
-                std::ptr::NonNull::new(data.as_ptr().cast_mut().cast()).unwrap(),
+                data_ptr,
                 bytes_per_row,
             );
         }

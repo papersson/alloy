@@ -153,10 +153,13 @@ impl SceneRenderer {
         let vertex_data = mesh.vertices.as_slice();
         let buffer_size = std::mem::size_of_val(vertex_data);
 
+        let data_ptr =
+            std::ptr::NonNull::new(vertex_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
+                .ok_or_else(|| "Failed to create NonNull pointer for vertex data".to_string())?;
+
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
-                std::ptr::NonNull::new(vertex_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
-                    .unwrap(),
+                data_ptr,
                 buffer_size,
                 MTLResourceOptions::empty(),
             )
@@ -173,10 +176,13 @@ impl SceneRenderer {
         let index_data = mesh.indices.as_slice();
         let buffer_size = std::mem::size_of_val(index_data);
 
+        let data_ptr =
+            std::ptr::NonNull::new(index_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
+                .ok_or_else(|| "Failed to create NonNull pointer for index data".to_string())?;
+
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
-                std::ptr::NonNull::new(index_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
-                    .unwrap(),
+                data_ptr,
                 buffer_size,
                 MTLResourceOptions::empty(),
             )
