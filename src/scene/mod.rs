@@ -4,7 +4,8 @@ use std::rc::Rc;
 
 pub struct Camera {
     position: Vec3,
-    target: Vec3,
+    yaw: f32,
+    pitch: f32,
     up: Vec3,
     fov_y: f32,
     aspect_ratio: f32,
@@ -15,9 +16,15 @@ pub struct Camera {
 impl Camera {
     #[must_use]
     pub fn new(position: Vec3, target: Vec3, aspect_ratio: f32) -> Self {
+        // Calculate initial yaw/pitch from position and target
+        let direction = target.sub(&position).normalize();
+        let yaw = direction.z.atan2(direction.x);
+        let pitch = (-direction.y).asin();
+
         Self {
             position,
-            target,
+            yaw,
+            pitch,
             up: Vec3::new(0.0, 1.0, 0.0),
             fov_y: std::f32::consts::PI / 4.0,
             aspect_ratio,
@@ -28,7 +35,26 @@ impl Camera {
 
     #[must_use]
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at(&self.position, &self.target, &self.up)
+        let target = self.position.add(&self.forward());
+        Mat4::look_at(&self.position, &target, &self.up)
+    }
+
+    #[must_use]
+    pub fn forward(&self) -> Vec3 {
+        Vec3::new(
+            self.yaw.cos() * self.pitch.cos(),
+            -self.pitch.sin(),
+            self.yaw.sin() * self.pitch.cos(),
+        )
+    }
+
+    #[must_use]
+    pub fn right(&self) -> Vec3 {
+        Vec3::new(
+            (self.yaw - std::f32::consts::FRAC_PI_2).cos(),
+            0.0,
+            (self.yaw - std::f32::consts::FRAC_PI_2).sin(),
+        )
     }
 
     #[must_use]
@@ -45,8 +71,22 @@ impl Camera {
         self.position = position;
     }
 
-    pub fn set_target(&mut self, target: Vec3) {
-        self.target = target;
+    pub fn rotate(&mut self, yaw_delta: f32, pitch_delta: f32) {
+        self.yaw += yaw_delta;
+        self.pitch = (self.pitch + pitch_delta).clamp(
+            -std::f32::consts::FRAC_PI_2 + 0.01,
+            std::f32::consts::FRAC_PI_2 - 0.01,
+        );
+    }
+
+    pub fn move_forward(&mut self, distance: f32) {
+        let forward = self.forward();
+        self.position = self.position.add(&forward.scale(distance));
+    }
+
+    pub fn move_right(&mut self, distance: f32) {
+        let right = self.right();
+        self.position = self.position.add(&right.scale(distance));
     }
 
     pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) {

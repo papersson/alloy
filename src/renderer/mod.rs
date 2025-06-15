@@ -1,7 +1,6 @@
 mod cube_renderer;
 mod scene_renderer;
 
-pub use cube_renderer::CubeRenderer;
 pub use scene_renderer::SceneRenderer;
 
 use crate::math::Vec3;

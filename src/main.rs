@@ -1,5 +1,6 @@
 mod app;
 mod core;
+mod input;
 mod math;
 mod renderer;
 mod scene;

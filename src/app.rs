@@ -1,5 +1,6 @@
 use crate::{
     core::Timer,
+    input::InputState,
     log,
     math::Vec3,
     renderer::SceneRenderer,
@@ -9,11 +10,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     raw_window_handle::HasWindowHandle,
-    window::{Window, WindowAttributes, WindowId},
+    window::{CursorGrabMode, Window, WindowAttributes, WindowId},
 };
 
 pub struct App {
@@ -24,6 +25,7 @@ pub struct App {
     frame_count: u32,
     fps_update_timer: f32,
     current_fps: u32,
+    input_state: InputState,
 }
 
 impl App {
@@ -36,6 +38,7 @@ impl App {
             frame_count: 0,
             fps_update_timer: 0.0,
             current_fps: 0,
+            input_state: InputState::new(),
         }
     }
 
@@ -94,6 +97,15 @@ impl ApplicationHandler for App {
                 Ok(window) => {
                     log!("Window created successfully");
 
+                    // Capture cursor for mouse look
+                    if let Err(e) = window.set_cursor_grab(CursorGrabMode::Locked) {
+                        log!("Failed to lock cursor: {}, trying confined mode", e);
+                        if let Err(e) = window.set_cursor_grab(CursorGrabMode::Confined) {
+                            log!("Failed to confine cursor: {}", e);
+                        }
+                    }
+                    window.set_cursor_visible(false);
+
                     match window.window_handle() {
                         Ok(handle) => {
                             let size = window.inner_size();
@@ -142,15 +154,31 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        physical_key: PhysicalKey::Code(KeyCode::Escape),
-                        state: ElementState::Pressed,
+                        physical_key,
+                        state,
                         ..
                     },
                 ..
-            } => {
-                log!("Escape pressed, exiting");
-                event_loop.exit();
-            }
+            } => match physical_key {
+                PhysicalKey::Code(KeyCode::Escape) => {
+                    if state == ElementState::Pressed {
+                        log!("Escape pressed, exiting");
+                        event_loop.exit();
+                    }
+                }
+                PhysicalKey::Code(KeyCode::Tab) => {
+                    if state == ElementState::Pressed {
+                        if let Some(window) = &self.window {
+                            window.set_cursor_grab(CursorGrabMode::None).ok();
+                            window.set_cursor_visible(true);
+                        }
+                    }
+                }
+                _ => match state {
+                    ElementState::Pressed => self.input_state.key_pressed(physical_key),
+                    ElementState::Released => self.input_state.key_released(physical_key),
+                },
+            },
             WindowEvent::RedrawRequested => {
                 let delta = self.timer.delta();
                 self.frame_count += 1;
@@ -163,7 +191,46 @@ impl ApplicationHandler for App {
                     log!("FPS: {}", self.current_fps);
                 }
 
+                // Update camera based on input
                 if let Some(renderer) = &mut self.renderer {
+                    let camera = renderer.camera_mut();
+
+                    // Handle movement
+                    let movement_speed = self.input_state.movement_speed() * delta;
+
+                    if self
+                        .input_state
+                        .is_key_pressed(PhysicalKey::Code(KeyCode::KeyW))
+                    {
+                        camera.move_forward(movement_speed);
+                    }
+                    if self
+                        .input_state
+                        .is_key_pressed(PhysicalKey::Code(KeyCode::KeyS))
+                    {
+                        camera.move_forward(-movement_speed);
+                    }
+                    if self
+                        .input_state
+                        .is_key_pressed(PhysicalKey::Code(KeyCode::KeyA))
+                    {
+                        camera.move_right(-movement_speed);
+                    }
+                    if self
+                        .input_state
+                        .is_key_pressed(PhysicalKey::Code(KeyCode::KeyD))
+                    {
+                        camera.move_right(movement_speed);
+                    }
+
+                    // Handle rotation
+                    let (dx, dy) = self.input_state.mouse_delta();
+                    if dx.abs() > 0.0 || dy.abs() > 0.0 {
+                        let sensitivity = self.input_state.mouse_sensitivity();
+                        camera.rotate(-dx * sensitivity, -dy * sensitivity);
+                        self.input_state.reset_mouse_delta();
+                    }
+
                     if let Err(e) = renderer.render(&self.scene) {
                         log!("Render error: {}", e);
                     }
@@ -172,6 +239,15 @@ impl ApplicationHandler for App {
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
+            }
+            _ => {}
+        }
+    }
+
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        match event {
+            DeviceEvent::MouseMotion { delta: (dx, dy) } => {
+                self.input_state.set_mouse_delta(dx as f32, dy as f32);
             }
             _ => {}
         }
