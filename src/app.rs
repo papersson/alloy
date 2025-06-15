@@ -236,10 +236,6 @@ impl ApplicationHandler for App {
                         self.input_state.reset_mouse_delta();
                     }
 
-                    if let Err(e) = renderer.render(&self.scene) {
-                        log!("Render error: {}", e);
-                    }
-
                     // Prepare UI rendering
                     if let Some(ui_renderer) = &mut self.ui_renderer {
                         ui_renderer.begin_frame();
@@ -253,9 +249,11 @@ impl ApplicationHandler for App {
                         );
 
                         ui_renderer.end_frame();
+                    }
 
-                        // TODO: Actually render the UI with the render encoder
-                        // For now, this is just preparing the data
+                    // Render scene and UI together
+                    if let Err(e) = renderer.render(&self.scene, self.ui_renderer.as_ref()) {
+                        log!("Render error: {}", e);
                     }
                 }
 

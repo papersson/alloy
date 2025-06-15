@@ -1,19 +1,20 @@
 use crate::core::Texture;
 use crate::math::{Mat4, Vec3};
 use crate::scene::{Camera, Mesh, Scene, Vertex};
+use crate::ui::{UIRenderer, UIVertex};
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::CGSize;
 use objc2_foundation::NSString;
 use objc2_metal::{
-    MTLBuffer, MTLClearColor, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
-    MTLCompileOptions, MTLCreateSystemDefaultDevice, MTLDepthStencilDescriptor,
-    MTLDepthStencilState, MTLDevice, MTLDrawable, MTLIndexType, MTLLibrary, MTLLoadAction,
-    MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
-    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSamplerDescriptor,
-    MTLSamplerMinMagFilter, MTLSamplerState, MTLStoreAction, MTLTexture, MTLTextureDescriptor,
-    MTLTextureUsage, MTLVertexDescriptor,
+    MTLBlendFactor, MTLBlendOperation, MTLBuffer, MTLClearColor, MTLCommandBuffer,
+    MTLCommandEncoder, MTLCommandQueue, MTLCompileOptions, MTLCreateSystemDefaultDevice,
+    MTLDepthStencilDescriptor, MTLDepthStencilState, MTLDevice, MTLDrawable, MTLIndexType,
+    MTLLibrary, MTLLoadAction, MTLPixelFormat, MTLPrimitiveType, MTLRenderCommandEncoder,
+    MTLRenderPassDescriptor, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
+    MTLResourceOptions, MTLSamplerDescriptor, MTLSamplerMinMagFilter, MTLSamplerState,
+    MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureUsage, MTLVertexDescriptor,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use std::collections::HashMap;
@@ -47,7 +48,9 @@ pub struct SceneRenderer {
     command_queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     layer: Retained<CAMetalLayer>,
     pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    ui_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
+    ui_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     depth_texture: Option<Retained<ProtocolObject<dyn MTLTexture>>>,
     default_texture: Texture,
     sampler_state: Retained<ProtocolObject<dyn MTLSamplerState>>,
@@ -68,7 +71,9 @@ impl SceneRenderer {
         let layer = Self::create_metal_layer(&device, window_handle)?;
 
         let pipeline_state = Self::create_pipeline_state(&device)?;
+        let ui_pipeline_state = Self::create_ui_pipeline_state(&device)?;
         let depth_stencil_state = Self::create_depth_stencil_state(&device)?;
+        let ui_depth_stencil_state = Self::create_ui_depth_stencil_state(&device)?;
         let depth_texture = Self::create_depth_texture(&device, width, height)?;
 
         let default_texture = Self::create_checkerboard_texture(&device)?;
@@ -86,7 +91,9 @@ impl SceneRenderer {
             command_queue,
             layer,
             pipeline_state,
+            ui_pipeline_state,
             depth_stencil_state,
+            ui_depth_stencil_state,
             depth_texture: Some(depth_texture),
             default_texture,
             sampler_state,
@@ -253,6 +260,80 @@ impl SceneRenderer {
         Ok(pipeline_state)
     }
 
+    fn create_ui_pipeline_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, String> {
+        let shader_source = include_str!("../shaders/ui.metal");
+        let shader_source = NSString::from_str(shader_source);
+
+        let compile_options = MTLCompileOptions::new();
+        let library = device
+            .newLibraryWithSource_options_error(&shader_source, Some(&compile_options))
+            .map_err(|e| format!("Failed to compile UI shaders: {:?}", e))?;
+
+        let vertex_function = library
+            .newFunctionWithName(&NSString::from_str("ui_vertex"))
+            .ok_or_else(|| "Failed to find UI vertex shader".to_string())?;
+
+        let fragment_function = library
+            .newFunctionWithName(&NSString::from_str("ui_fragment"))
+            .ok_or_else(|| "Failed to find UI fragment shader".to_string())?;
+
+        let vertex_descriptor = unsafe { MTLVertexDescriptor::new() };
+
+        unsafe {
+            // Position attribute
+            let position_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(0);
+            position_attr.setFormat(objc2_metal::MTLVertexFormat::Float2);
+            position_attr.setOffset(0);
+            position_attr.setBufferIndex(0);
+
+            // TexCoord attribute
+            let tex_coord_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(1);
+            tex_coord_attr.setFormat(objc2_metal::MTLVertexFormat::Float2);
+            tex_coord_attr.setOffset(std::mem::offset_of!(UIVertex, uv));
+            tex_coord_attr.setBufferIndex(0);
+
+            // Color attribute
+            let color_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(2);
+            color_attr.setFormat(objc2_metal::MTLVertexFormat::Float4);
+            color_attr.setOffset(std::mem::offset_of!(UIVertex, color));
+            color_attr.setBufferIndex(0);
+
+            let layout = vertex_descriptor.layouts().objectAtIndexedSubscript(0);
+            layout.setStride(std::mem::size_of::<UIVertex>());
+        }
+
+        let pipeline_descriptor = MTLRenderPipelineDescriptor::new();
+        pipeline_descriptor.setVertexFunction(Some(&vertex_function));
+        pipeline_descriptor.setFragmentFunction(Some(&fragment_function));
+        pipeline_descriptor.setVertexDescriptor(Some(&vertex_descriptor));
+
+        unsafe {
+            let color_attachment = pipeline_descriptor
+                .colorAttachments()
+                .objectAtIndexedSubscript(0);
+            color_attachment.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+
+            // Enable alpha blending for UI overlay
+            color_attachment.setBlendingEnabled(true);
+            color_attachment.setSourceRGBBlendFactor(MTLBlendFactor::SourceAlpha);
+            color_attachment.setDestinationRGBBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
+            color_attachment.setRgbBlendOperation(MTLBlendOperation::Add);
+            color_attachment.setSourceAlphaBlendFactor(MTLBlendFactor::One);
+            color_attachment.setDestinationAlphaBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
+            color_attachment.setAlphaBlendOperation(MTLBlendOperation::Add);
+        }
+
+        pipeline_descriptor.setDepthAttachmentPixelFormat(MTLPixelFormat::Depth32Float);
+
+        let pipeline_state = device
+            .newRenderPipelineStateWithDescriptor_error(&pipeline_descriptor)
+            .map_err(|e| format!("Failed to create UI pipeline state: {:?}", e))?;
+
+        Ok(pipeline_state)
+    }
+
     fn create_depth_stencil_state(
         device: &ProtocolObject<dyn MTLDevice>,
     ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
@@ -263,6 +344,21 @@ impl SceneRenderer {
         let state = device
             .newDepthStencilStateWithDescriptor(&descriptor)
             .ok_or_else(|| "Failed to create depth stencil state".to_string())?;
+
+        Ok(state)
+    }
+
+    fn create_ui_depth_stencil_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
+        let descriptor = unsafe { MTLDepthStencilDescriptor::new() };
+        // UI should always render on top, so we disable depth testing and writing
+        descriptor.setDepthCompareFunction(objc2_metal::MTLCompareFunction::Always);
+        descriptor.setDepthWriteEnabled(false);
+
+        let state = device
+            .newDepthStencilStateWithDescriptor(&descriptor)
+            .ok_or_else(|| "Failed to create UI depth stencil state".to_string())?;
 
         Ok(state)
     }
@@ -349,7 +445,11 @@ impl SceneRenderer {
         Ok(())
     }
 
-    pub fn render(&mut self, scene: &Scene) -> Result<(), String> {
+    pub fn render(
+        &mut self,
+        scene: &Scene,
+        ui_renderer: Option<&UIRenderer>,
+    ) -> Result<(), String> {
         // Ensure all mesh buffers are created before rendering
         self.ensure_mesh_buffers(scene)?;
         let drawable = unsafe { self.layer.nextDrawable() }
@@ -454,6 +554,45 @@ impl SceneRenderer {
                     }
                 }
             });
+
+            // Render UI overlay if provided
+            if let Some(ui_renderer) = ui_renderer {
+                // Switch to UI pipeline
+                render_encoder.setRenderPipelineState(&self.ui_pipeline_state);
+
+                // Use UI depth stencil state (no depth write, always pass depth test)
+                render_encoder.setDepthStencilState(Some(&self.ui_depth_stencil_state));
+
+                // Bind UI buffers
+                unsafe {
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(ui_renderer.vertex_buffer()),
+                        0,
+                        0,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(ui_renderer.uniform_buffer()),
+                        0,
+                        1,
+                    );
+
+                    // Bind font texture and sampler
+                    render_encoder.setFragmentTexture_atIndex(Some(ui_renderer.font_texture()), 0);
+                    render_encoder.setFragmentSamplerState_atIndex(Some(&self.sampler_state), 0);
+
+                    // Issue draw call for UI
+                    if ui_renderer.index_count() > 0 {
+                        render_encoder
+                            .drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(
+                                MTLPrimitiveType::Triangle,
+                                ui_renderer.index_count(),
+                                MTLIndexType::UInt16,
+                                ui_renderer.index_buffer(),
+                                0,
+                            );
+                    }
+                }
+            }
 
             render_encoder.endEncoding();
         }

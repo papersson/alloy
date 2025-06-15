@@ -187,14 +187,24 @@ impl UIRenderer {
         }
     }
 
-    pub fn render(&self, _encoder: &ProtocolObject<dyn MTLRenderCommandEncoder>) {
-        // TODO: Issue draw calls for UI elements
-        // This will require setting up a UI pipeline state and issuing draw calls
-        // For now, we'll leave this as a placeholder
-    }
-
     pub fn font_texture(&self) -> &ProtocolObject<dyn MTLTexture> {
         self.font.texture()
+    }
+
+    pub fn vertex_buffer(&self) -> &ProtocolObject<dyn MTLBuffer> {
+        &self.vertex_buffer
+    }
+
+    pub fn index_buffer(&self) -> &ProtocolObject<dyn MTLBuffer> {
+        &self.index_buffer
+    }
+
+    pub fn uniform_buffer(&self) -> &ProtocolObject<dyn MTLBuffer> {
+        &self.uniform_buffer
+    }
+
+    pub fn index_count(&self) -> usize {
+        self.index_count
     }
 }
 
