@@ -274,6 +274,18 @@ impl Mat4 {
     }
 
     #[must_use]
+    pub fn rotation_x(angle_rad: f32) -> Self {
+        let c = angle_rad.cos();
+        let s = angle_rad.sin();
+        Self::new(
+            Vec4::new(1.0, 0.0, 0.0, 0.0),
+            Vec4::new(0.0, c, -s, 0.0),
+            Vec4::new(0.0, s, c, 0.0),
+            Vec4::new(0.0, 0.0, 0.0, 1.0),
+        )
+    }
+
+    #[must_use]
     pub fn rotation_y(angle_rad: f32) -> Self {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
@@ -281,6 +293,18 @@ impl Mat4 {
             Vec4::new(c, 0.0, s, 0.0),
             Vec4::new(0.0, 1.0, 0.0, 0.0),
             Vec4::new(-s, 0.0, c, 0.0),
+            Vec4::new(0.0, 0.0, 0.0, 1.0),
+        )
+    }
+
+    #[must_use]
+    pub fn rotation_z(angle_rad: f32) -> Self {
+        let c = angle_rad.cos();
+        let s = angle_rad.sin();
+        Self::new(
+            Vec4::new(c, -s, 0.0, 0.0),
+            Vec4::new(s, c, 0.0, 0.0),
+            Vec4::new(0.0, 0.0, 1.0, 0.0),
             Vec4::new(0.0, 0.0, 0.0, 1.0),
         )
     }
@@ -313,6 +337,52 @@ impl Mat4 {
 }
 
 impl Default for Mat4 {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform {
+    pub position: Vec3,
+    pub rotation: Vec3,
+    pub scale: Vec3,
+}
+
+impl Transform {
+    #[must_use]
+    pub const fn new(position: Vec3, rotation: Vec3, scale: Vec3) -> Self {
+        Self {
+            position,
+            rotation,
+            scale,
+        }
+    }
+
+    #[must_use]
+    pub const fn identity() -> Self {
+        Self {
+            position: Vec3::zero(),
+            rotation: Vec3::zero(),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        }
+    }
+
+    #[must_use]
+    pub fn to_matrix(&self) -> Mat4 {
+        let translation = Mat4::translation(self.position.x, self.position.y, self.position.z);
+        let rotation_x = Mat4::rotation_x(self.rotation.x);
+        let rotation_y = Mat4::rotation_y(self.rotation.y);
+        let rotation_z = Mat4::rotation_z(self.rotation.z);
+        let scale = Mat4::scale(self.scale.x, self.scale.y, self.scale.z);
+
+        // Order: Scale -> Rotation X -> Rotation Y -> Rotation Z -> Translation
+        let rotation = rotation_z.multiply(&rotation_y).multiply(&rotation_x);
+        translation.multiply(&rotation).multiply(&scale)
+    }
+}
+
+impl Default for Transform {
     fn default() -> Self {
         Self::identity()
     }

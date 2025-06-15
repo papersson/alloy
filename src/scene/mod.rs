@@ -1,4 +1,6 @@
-use crate::math::{Mat4, Vec2, Vec3};
+use crate::math::{Mat4, Transform, Vec2, Vec3};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub struct Camera {
     position: Vec3,
@@ -183,5 +185,127 @@ impl Mesh {
         ];
 
         Self { vertices, indices }
+    }
+
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn plane(width: f32, depth: f32) -> Self {
+        let half_width = width / 2.0;
+        let half_depth = depth / 2.0;
+
+        let vertices = vec![
+            Vertex {
+                position: Vec3::new(-half_width, 0.0, -half_depth),
+                tex_coord: Vec2::new(0.0, 0.0),
+            },
+            Vertex {
+                position: Vec3::new(half_width, 0.0, -half_depth),
+                tex_coord: Vec2::new(1.0, 0.0),
+            },
+            Vertex {
+                position: Vec3::new(half_width, 0.0, half_depth),
+                tex_coord: Vec2::new(1.0, 1.0),
+            },
+            Vertex {
+                position: Vec3::new(-half_width, 0.0, half_depth),
+                tex_coord: Vec2::new(0.0, 1.0),
+            },
+        ];
+
+        let indices = vec![0, 1, 2, 0, 2, 3];
+
+        Self { vertices, indices }
+    }
+}
+
+pub type NodeRef = Rc<RefCell<Node>>;
+
+pub struct Node {
+    pub name: String,
+    pub transform: Transform,
+    pub mesh: Option<Mesh>,
+    pub children: Vec<NodeRef>,
+    parent: Option<NodeRef>,
+}
+
+impl Node {
+    #[must_use]
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            transform: Transform::identity(),
+            mesh: None,
+            children: Vec::new(),
+            parent: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_mesh(name: String, mesh: Mesh) -> Self {
+        Self {
+            name,
+            transform: Transform::identity(),
+            mesh: Some(mesh),
+            children: Vec::new(),
+            parent: None,
+        }
+    }
+
+    pub fn add_child(&mut self, child: NodeRef) {
+        self.children.push(child);
+    }
+
+    #[must_use]
+    pub fn world_transform(&self) -> Mat4 {
+        let local_transform = self.transform.to_matrix();
+        if let Some(parent) = &self.parent {
+            parent.borrow().world_transform().multiply(&local_transform)
+        } else {
+            local_transform
+        }
+    }
+}
+
+pub struct Scene {
+    pub root_nodes: Vec<NodeRef>,
+}
+
+impl Scene {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            root_nodes: Vec::new(),
+        }
+    }
+
+    pub fn add_node(&mut self, node: NodeRef) {
+        self.root_nodes.push(node);
+    }
+
+    pub fn traverse<F>(&self, mut callback: F)
+    where
+        F: FnMut(&Node, &Mat4),
+    {
+        for root in &self.root_nodes {
+            self.traverse_node(&root.borrow(), &Mat4::identity(), &mut callback);
+        }
+    }
+
+    fn traverse_node<F>(&self, node: &Node, parent_transform: &Mat4, callback: &mut F)
+    where
+        F: FnMut(&Node, &Mat4),
+    {
+        let world_transform = parent_transform.multiply(&node.transform.to_matrix());
+        callback(node, &world_transform);
+
+        for child in &node.children {
+            self.traverse_node(&child.borrow(), &world_transform, callback);
+        }
+    }
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Self::new()
     }
 }

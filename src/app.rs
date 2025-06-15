@@ -1,4 +1,12 @@
-use crate::{core::Timer, log, renderer::CubeRenderer};
+use crate::{
+    core::Timer,
+    log,
+    math::Vec3,
+    renderer::SceneRenderer,
+    scene::{Mesh, Node, Scene},
+};
+use std::cell::RefCell;
+use std::rc::Rc;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},
@@ -10,7 +18,8 @@ use winit::{
 
 pub struct App {
     window: Option<Window>,
-    renderer: Option<CubeRenderer>,
+    renderer: Option<SceneRenderer>,
+    scene: Scene,
     timer: Timer,
     frame_count: u32,
     fps_update_timer: f32,
@@ -22,11 +31,46 @@ impl App {
         Self {
             window: None,
             renderer: None,
+            scene: Self::create_scene(),
             timer: Timer::new(),
             frame_count: 0,
             fps_update_timer: 0.0,
             current_fps: 0,
         }
+    }
+
+    fn create_scene() -> Scene {
+        let mut scene = Scene::new();
+
+        // Create ground plane
+        let ground_node = Rc::new(RefCell::new(Node::with_mesh(
+            "Ground".to_string(),
+            Mesh::plane(10.0, 10.0),
+        )));
+        ground_node.borrow_mut().transform.position = Vec3::new(0.0, -1.0, 0.0);
+        scene.add_node(ground_node);
+
+        // Create multiple cubes
+        let positions = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(-2.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 2.0),
+            Vec3::new(0.0, 0.0, -2.0),
+            Vec3::new(1.0, 1.0, 1.0),
+            Vec3::new(-1.0, 1.0, -1.0),
+        ];
+
+        for (i, &position) in positions.iter().enumerate() {
+            let cube_node = Rc::new(RefCell::new(Node::with_mesh(
+                format!("Cube{i}"),
+                Mesh::cube(),
+            )));
+            cube_node.borrow_mut().transform.position = position;
+            scene.add_node(cube_node);
+        }
+
+        scene
     }
 
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -53,7 +97,7 @@ impl ApplicationHandler for App {
                     match window.window_handle() {
                         Ok(handle) => {
                             let size = window.inner_size();
-                            match CubeRenderer::new(handle.as_raw(), size.width, size.height) {
+                            match SceneRenderer::new(handle.as_raw(), size.width, size.height) {
                                 Ok(renderer) => {
                                     self.renderer = Some(renderer);
                                     log!("Renderer initialized successfully");
@@ -120,7 +164,7 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(renderer) = &mut self.renderer {
-                    if let Err(e) = renderer.render() {
+                    if let Err(e) = renderer.render(&self.scene) {
                         log!("Render error: {}", e);
                     }
                 }
