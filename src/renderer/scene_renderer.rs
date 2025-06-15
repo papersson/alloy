@@ -22,6 +22,17 @@ use winit::raw_window_handle::RawWindowHandle;
 #[repr(C)]
 struct Uniforms {
     mvp_matrix: Mat4,
+    model_matrix: Mat4,
+    normal_matrix: Mat4,
+    view_pos: Vec3,
+    _padding0: f32,
+    light_pos: Vec3,
+    _padding1: f32,
+    light_color: Vec3,
+    ambient_strength: f32,
+    diffuse_strength: f32,
+    specular_strength: f32,
+    _padding2: [f32; 2],
 }
 
 struct MeshBuffers {
@@ -212,6 +223,11 @@ impl SceneRenderer {
             tex_coord_attr.setOffset(std::mem::offset_of!(Vertex, tex_coord));
             tex_coord_attr.setBufferIndex(0);
 
+            let normal_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(2);
+            normal_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            normal_attr.setOffset(std::mem::offset_of!(Vertex, normal));
+            normal_attr.setBufferIndex(0);
+
             let layout = vertex_descriptor.layouts().objectAtIndexedSubscript(0);
             layout.setStride(std::mem::size_of::<Vertex>());
         }
@@ -388,9 +404,27 @@ impl SceneRenderer {
                 if let Some(mesh) = &node.mesh {
                     let mesh_ptr = mesh as *const Mesh;
                     if let Some(buffers) = self.mesh_buffers.get(&mesh_ptr) {
-                        // Update uniforms with MVP matrix for this node
-                        let mvp_matrix = self.camera.view_projection_matrix().multiply(world_transform);
-                        let uniforms = Uniforms { mvp_matrix };
+                        // Update uniforms with MVP matrix and lighting data for this node
+                        let view_proj = self.camera.view_projection_matrix();
+                        let mvp_matrix = view_proj.multiply(world_transform);
+
+                        // Calculate normal matrix (transpose of inverse of model matrix)
+                        // For now, we'll use the model matrix directly since we're only using uniform scaling
+                        let normal_matrix = world_transform.clone();
+                        let uniforms = Uniforms {
+                            mvp_matrix,
+                            model_matrix: world_transform.clone(),
+                            normal_matrix,
+                            view_pos: self.camera.position(),
+                            _padding0: 0.0,
+                            light_pos: scene.light.position,
+                            _padding1: 0.0,
+                            light_color: scene.light.color,
+                            ambient_strength: scene.light.ambient,
+                            diffuse_strength: scene.light.diffuse,
+                            specular_strength: scene.light.specular,
+                            _padding2: [0.0; 2],
+                        };
                         unsafe {
                             let contents = buffers.uniform_buffer.contents();
                             std::ptr::copy_nonoverlapping(
@@ -406,6 +440,7 @@ impl SceneRenderer {
 
                             render_encoder.setFragmentTexture_atIndex(Some(&self.default_texture.texture), 0);
                             render_encoder.setFragmentSamplerState_atIndex(Some(&self.sampler_state), 0);
+                            render_encoder.setFragmentBuffer_offset_atIndex(Some(&buffers.uniform_buffer), 0, 1);
 
                             render_encoder
                                 .drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(

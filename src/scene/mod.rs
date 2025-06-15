@@ -2,6 +2,28 @@ use crate::math::{Mat4, Transform, Vec2, Vec3};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+#[derive(Debug, Clone, Copy)]
+pub struct Light {
+    pub position: Vec3,
+    pub color: Vec3,
+    pub ambient: f32,
+    pub diffuse: f32,
+    pub specular: f32,
+}
+
+impl Light {
+    #[must_use]
+    pub fn new(position: Vec3, color: Vec3) -> Self {
+        Self {
+            position,
+            color,
+            ambient: 0.1,
+            diffuse: 0.8,
+            specular: 0.5,
+        }
+    }
+}
+
 pub struct Camera {
     position: Vec3,
     yaw: f32,
@@ -92,6 +114,11 @@ impl Camera {
     pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) {
         self.aspect_ratio = aspect_ratio;
     }
+
+    #[must_use]
+    pub fn position(&self) -> Vec3 {
+        self.position
+    }
 }
 
 #[repr(C)]
@@ -99,6 +126,7 @@ impl Camera {
 pub struct Vertex {
     pub position: Vec3,
     pub tex_coord: Vec2,
+    pub normal: Vec3,
 }
 
 pub struct Mesh {
@@ -110,107 +138,131 @@ impl Mesh {
     #[must_use]
     pub fn cube() -> Self {
         let vertices = vec![
-            // Front face
+            // Front face (normal: +Z)
             Vertex {
                 position: Vec3::new(-0.5, -0.5, 0.5),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
             },
             Vertex {
                 position: Vec3::new(0.5, -0.5, 0.5),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
             },
             Vertex {
                 position: Vec3::new(0.5, 0.5, 0.5),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, 0.5, 0.5),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
             },
-            // Back face
+            // Back face (normal: -Z)
             Vertex {
                 position: Vec3::new(0.5, -0.5, -0.5),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(0.0, 0.0, -1.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, -0.5, -0.5),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(0.0, 0.0, -1.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, 0.5, -0.5),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, -1.0),
             },
             Vertex {
                 position: Vec3::new(0.5, 0.5, -0.5),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, -1.0),
             },
-            // Top face
+            // Top face (normal: +Y)
             Vertex {
                 position: Vec3::new(-0.5, 0.5, 0.5),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, 0.5, 0.5),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, 0.5, -0.5),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, 0.5, -0.5),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
-            // Bottom face
+            // Bottom face (normal: -Y)
             Vertex {
                 position: Vec3::new(-0.5, -0.5, -0.5),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(0.0, -1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, -0.5, -0.5),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(0.0, -1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, -0.5, 0.5),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(0.0, -1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, -0.5, 0.5),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(0.0, -1.0, 0.0),
             },
-            // Right face
+            // Right face (normal: +X)
             Vertex {
                 position: Vec3::new(0.5, -0.5, 0.5),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(1.0, 0.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, -0.5, -0.5),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(1.0, 0.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, 0.5, -0.5),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(1.0, 0.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(0.5, 0.5, 0.5),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(1.0, 0.0, 0.0),
             },
-            // Left face
+            // Left face (normal: -X)
             Vertex {
                 position: Vec3::new(-0.5, -0.5, -0.5),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(-1.0, 0.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, -0.5, 0.5),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(-1.0, 0.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, 0.5, 0.5),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(-1.0, 0.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(-0.5, 0.5, -0.5),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(-1.0, 0.0, 0.0),
             },
         ];
 
@@ -237,18 +289,22 @@ impl Mesh {
             Vertex {
                 position: Vec3::new(-half_width, 0.0, -half_depth),
                 tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(half_width, 0.0, -half_depth),
                 tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(half_width, 0.0, half_depth),
                 tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
             Vertex {
                 position: Vec3::new(-half_width, 0.0, half_depth),
                 tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
             },
         ];
 
@@ -308,6 +364,7 @@ impl Node {
 
 pub struct Scene {
     pub root_nodes: Vec<NodeRef>,
+    pub light: Light,
 }
 
 impl Scene {
@@ -315,6 +372,7 @@ impl Scene {
     pub fn new() -> Self {
         Self {
             root_nodes: Vec::new(),
+            light: Light::new(Vec3::new(5.0, 10.0, 5.0), Vec3::new(1.0, 1.0, 1.0)),
         }
     }
 
