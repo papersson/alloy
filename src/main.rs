@@ -4,6 +4,7 @@ mod input;
 mod math;
 mod renderer;
 mod scene;
+mod ui;
 
 use app::App;
 

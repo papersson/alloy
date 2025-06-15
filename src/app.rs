@@ -5,6 +5,7 @@ use crate::{
     math::Vec3,
     renderer::SceneRenderer,
     scene::{Mesh, Node, Scene},
+    ui::{FPSCounter, UIRenderer},
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,11 +21,11 @@ use winit::{
 pub struct App {
     window: Option<Window>,
     renderer: Option<SceneRenderer>,
+    ui_renderer: Option<UIRenderer>,
     scene: Scene,
     timer: Timer,
     frame_count: u32,
-    fps_update_timer: f32,
-    current_fps: u32,
+    fps_counter: FPSCounter,
     input_state: InputState,
 }
 
@@ -33,11 +34,11 @@ impl App {
         Self {
             window: None,
             renderer: None,
+            ui_renderer: None,
             scene: Self::create_scene(),
             timer: Timer::new(),
             frame_count: 0,
-            fps_update_timer: 0.0,
-            current_fps: 0,
+            fps_counter: FPSCounter::new(),
             input_state: InputState::new(),
         }
     }
@@ -111,7 +112,13 @@ impl ApplicationHandler for App {
                             let size = window.inner_size();
                             match SceneRenderer::new(handle.as_raw(), size.width, size.height) {
                                 Ok(renderer) => {
+                                    // Create UI renderer using the same device
+                                    let ui_renderer = UIRenderer::new(renderer.device());
+                                    ui_renderer
+                                        .update_projection(size.width as f32, size.height as f32);
+
                                     self.renderer = Some(renderer);
+                                    self.ui_renderer = Some(ui_renderer);
                                     log!("Renderer initialized successfully");
                                     window.request_redraw();
                                 }
@@ -144,11 +151,14 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                if let Some(renderer) = &mut self.renderer {
-                    if size.width > 0 && size.height > 0 {
+                if size.width > 0 && size.height > 0 {
+                    if let Some(renderer) = &mut self.renderer {
                         renderer.update_drawable_size(size.width, size.height);
-                        log!("Window resized to {}x{}", size.width, size.height);
                     }
+                    if let Some(ui_renderer) = &self.ui_renderer {
+                        ui_renderer.update_projection(size.width as f32, size.height as f32);
+                    }
+                    log!("Window resized to {}x{}", size.width, size.height);
                 }
             }
             WindowEvent::KeyboardInput {
@@ -182,14 +192,9 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 let delta = self.timer.delta();
                 self.frame_count += 1;
-                self.fps_update_timer += delta;
 
-                if self.fps_update_timer >= 1.0 {
-                    self.current_fps = self.frame_count;
-                    self.frame_count = 0;
-                    self.fps_update_timer = 0.0;
-                    log!("FPS: {}", self.current_fps);
-                }
+                // Update FPS counter
+                self.fps_counter.update(delta);
 
                 // Update camera based on input
                 if let Some(renderer) = &mut self.renderer {
@@ -233,6 +238,24 @@ impl ApplicationHandler for App {
 
                     if let Err(e) = renderer.render(&self.scene) {
                         log!("Render error: {}", e);
+                    }
+
+                    // Prepare UI rendering
+                    if let Some(ui_renderer) = &mut self.ui_renderer {
+                        ui_renderer.begin_frame();
+
+                        // Draw FPS counter
+                        let fps_text = format!("FPS: {:.0}", self.fps_counter.fps());
+                        ui_renderer.draw_text(
+                            &fps_text,
+                            crate::math::Vec2::new(10.0, 10.0),
+                            [1.0, 1.0, 1.0, 1.0],
+                        );
+
+                        ui_renderer.end_frame();
+
+                        // TODO: Actually render the UI with the render encoder
+                        // For now, this is just preparing the data
                     }
                 }
 

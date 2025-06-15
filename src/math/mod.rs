@@ -322,6 +322,25 @@ impl Mat4 {
     }
 
     #[must_use]
+    pub fn orthographic(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Self {
+        let width = right - left;
+        let height = top - bottom;
+        let depth = far - near;
+
+        Self::new(
+            Vec4::new(2.0 / width, 0.0, 0.0, 0.0),
+            Vec4::new(0.0, 2.0 / height, 0.0, 0.0),
+            Vec4::new(0.0, 0.0, -2.0 / depth, 0.0),
+            Vec4::new(
+                -(right + left) / width,
+                -(top + bottom) / height,
+                -(far + near) / depth,
+                1.0,
+            ),
+        )
+    }
+
+    #[must_use]
     pub fn look_at(eye: &Vec3, center: &Vec3, up: &Vec3) -> Self {
         let f = center.sub(eye).normalize();
         let s = f.cross(up).normalize();

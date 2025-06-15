@@ -491,4 +491,8 @@ impl SceneRenderer {
     pub fn camera_mut(&mut self) -> &mut Camera {
         &mut self.camera
     }
+
+    pub fn device(&self) -> &ProtocolObject<dyn MTLDevice> {
+        &self.device
+    }
 }
