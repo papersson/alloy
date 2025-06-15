@@ -9,6 +9,6 @@ mod ui;
 use app::App;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    log!("Starting 3D Engine");
+    log!("Starting 3D Graphics Engine");
     App::run()
 }

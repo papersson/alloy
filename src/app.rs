@@ -101,7 +101,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let window_attributes = WindowAttributes::default()
-                .with_title("Rust 3D Engine")
+                .with_title("Rust 3D Graphics Engine")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280, 720));
 
             match event_loop.create_window(window_attributes) {
