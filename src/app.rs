@@ -1,4 +1,4 @@
-use crate::{core::Timer, log, renderer::Renderer};
+use crate::{core::Timer, log, renderer::CubeRenderer};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, WindowEvent},
@@ -10,7 +10,7 @@ use winit::{
 
 pub struct App {
     window: Option<Window>,
-    renderer: Option<Renderer>,
+    renderer: Option<CubeRenderer>,
     timer: Timer,
     frame_count: u32,
     fps_update_timer: f32,
@@ -51,21 +51,20 @@ impl ApplicationHandler for App {
                     log!("Window created successfully");
 
                     match window.window_handle() {
-                        Ok(handle) => match Renderer::new(handle.as_raw()) {
-                            Ok(renderer) => {
-                                let size = window.inner_size();
-                                if size.width > 0 && size.height > 0 {
-                                    renderer.update_drawable_size(size.width, size.height);
+                        Ok(handle) => {
+                            let size = window.inner_size();
+                            match CubeRenderer::new(handle.as_raw(), size.width, size.height) {
+                                Ok(renderer) => {
+                                    self.renderer = Some(renderer);
+                                    log!("Renderer initialized successfully");
+                                    window.request_redraw();
                                 }
-                                self.renderer = Some(renderer);
-                                log!("Renderer initialized successfully");
-                                window.request_redraw();
+                                Err(e) => {
+                                    log!("Failed to create renderer: {}", e);
+                                    event_loop.exit();
+                                }
                             }
-                            Err(e) => {
-                                log!("Failed to create renderer: {}", e);
-                                event_loop.exit();
-                            }
-                        },
+                        }
                         Err(e) => {
                             log!("Failed to get window handle: {}", e);
                             event_loop.exit();
@@ -89,7 +88,7 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                if let Some(renderer) = &self.renderer {
+                if let Some(renderer) = &mut self.renderer {
                     if size.width > 0 && size.height > 0 {
                         renderer.update_drawable_size(size.width, size.height);
                         log!("Window resized to {}x{}", size.width, size.height);
@@ -120,7 +119,7 @@ impl ApplicationHandler for App {
                     log!("FPS: {}", self.current_fps);
                 }
 
-                if let Some(renderer) = &self.renderer {
+                if let Some(renderer) = &mut self.renderer {
                     if let Err(e) = renderer.render() {
                         log!("Render error: {}", e);
                     }

@@ -2,6 +2,7 @@ mod app;
 mod core;
 mod math;
 mod renderer;
+mod scene;
 
 use app::App;
 

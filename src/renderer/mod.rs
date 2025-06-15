@@ -1,3 +1,7 @@
+mod cube_renderer;
+
+pub use cube_renderer::CubeRenderer;
+
 use crate::math::Vec3;
 use objc2::msg_send;
 use objc2::rc::Retained;
@@ -191,7 +195,7 @@ impl Renderer {
             let mtl_drawable = (&raw const *drawable).cast::<ProtocolObject<dyn MTLDrawable>>();
             command_buffer.presentDrawable(&*mtl_drawable);
         }
-        
+
         command_buffer.commit();
 
         Ok(())
