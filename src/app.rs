@@ -4,8 +4,8 @@ use winit::{
     event::{ElementState, KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowAttributes, WindowId},
     raw_window_handle::HasWindowHandle,
+    window::{Window, WindowAttributes, WindowId},
 };
 
 pub struct App {
@@ -59,6 +59,7 @@ impl ApplicationHandler for App {
                                 }
                                 self.renderer = Some(renderer);
                                 log!("Renderer initialized successfully");
+                                window.request_redraw();
                             }
                             Err(e) => {
                                 log!("Failed to create renderer: {}", e);

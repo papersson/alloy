@@ -1,5 +1,6 @@
 mod app;
 mod core;
+mod math;
 mod renderer;
 
 use app::App;
