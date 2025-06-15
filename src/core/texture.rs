@@ -66,6 +66,8 @@ impl Texture {
             },
         };
 
+        // Safety: rgba_image.as_raw() provides a valid slice of pixel data that lives
+        // as long as rgba_image. The Metal API will copy this data into the texture.
         unsafe {
             let data_ptr = std::ptr::NonNull::new(rgba_image.as_raw().as_ptr().cast_mut().cast())
                 .ok_or_else(|| {

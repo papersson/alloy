@@ -128,8 +128,10 @@ impl SceneRenderer {
         device: &ProtocolObject<dyn MTLDevice>,
         window_handle: RawWindowHandle,
     ) -> Result<Retained<CAMetalLayer>, String> {
+        // Safety: CAMetalLayer::new() is a valid constructor
         let layer = unsafe { CAMetalLayer::new() };
 
+        // Safety: Setting layer properties with valid values
         unsafe {
             layer.setDevice(Some(device));
             layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
@@ -139,6 +141,8 @@ impl SceneRenderer {
         if let RawWindowHandle::AppKit(handle) = window_handle {
             let ns_view = handle.ns_view.as_ptr();
             let ns_view = ns_view.cast::<objc2::runtime::NSObject>();
+            // Safety: ns_view is a valid NSView pointer from the window handle,
+            // and we're setting standard layer properties
             let _: () = unsafe { msg_send![ns_view, setWantsLayer: true] };
             let _: () = unsafe { msg_send![ns_view, setLayer: &*layer] };
         }
@@ -157,6 +161,8 @@ impl SceneRenderer {
             std::ptr::NonNull::new(vertex_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
                 .ok_or_else(|| "Failed to create NonNull pointer for vertex data".to_string())?;
 
+        // Safety: data_ptr points to valid vertex data that lives at least as long as this function call.
+        // The Metal API will copy the data during buffer creation.
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
                 data_ptr,
@@ -180,6 +186,8 @@ impl SceneRenderer {
             std::ptr::NonNull::new(index_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
                 .ok_or_else(|| "Failed to create NonNull pointer for index data".to_string())?;
 
+        // Safety: data_ptr points to valid index data that lives at least as long as this function call.
+        // The Metal API will copy the data during buffer creation.
         let buffer = unsafe {
             device.newBufferWithBytes_length_options(
                 data_ptr,
@@ -531,6 +539,9 @@ impl SceneRenderer {
                             specular_strength: scene.light.specular,
                             _padding2: [0.0; 2],
                         };
+                        // Safety: The uniform buffer was created with at least sizeof(Uniforms) bytes.
+                        // The buffer contents pointer is valid for the lifetime of the buffer.
+                        // We're copying exactly one Uniforms struct which matches the buffer size.
                         unsafe {
                             let contents = buffers.uniform_buffer.contents();
                             std::ptr::copy_nonoverlapping(
@@ -603,6 +614,8 @@ impl SceneRenderer {
             render_encoder.endEncoding();
         }
 
+        // Safety: The drawable is a valid CAMetalDrawable that conforms to MTLDrawable protocol.
+        // The cast is safe because CAMetalDrawable implements MTLDrawable.
         unsafe {
             let mtl_drawable = (&raw const *drawable).cast::<ProtocolObject<dyn MTLDrawable>>();
             command_buffer.presentDrawable(&*mtl_drawable);

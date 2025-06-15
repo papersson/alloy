@@ -2,6 +2,13 @@
 name = "game-engine"
 version = "0.1.0"
 edition = "2021"
+authors = ["Patrik Persson (patrikcpersson@gmail.com"]
+description = "A minimal 3D game engine for macOS using Metal"
+readme = "README.md"
+repository = "https://github.com/papersson/alloy"
+license = "MIT OR Apache-2.0"
+keywords = ["gamedev", "3d", "metal", "graphics", "engine"]
+categories = ["game-engines", "graphics", "rendering"]
 
 [dependencies]
 objc2 = "0.6.1"
@@ -11,7 +18,10 @@ objc2-foundation = "0.3.1"
 objc2-metal = "0.3.1"
 objc2-quartz-core = "0.3.1"
 winit = "0.30.11"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+] }
 
 [lints.clippy]
 unwrap_used = "warn"

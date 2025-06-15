@@ -77,6 +77,16 @@ impl App {
         scene
     }
 
+    fn format_fps(&self) -> String {
+        // Using String::with_capacity to avoid multiple allocations
+        // This is still more efficient than format! which allocates multiple times
+        let fps = self.fps_counter.fps() as u32;
+        let mut result = String::with_capacity(16);
+        result.push_str("FPS: ");
+        result.push_str(&fps.to_string());
+        result
+    }
+
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Poll);
@@ -204,6 +214,9 @@ impl ApplicationHandler for App {
                 // Update FPS counter
                 self.fps_counter.update(delta);
 
+                // Format FPS text before mutable borrows
+                let fps_text = self.format_fps();
+
                 // Update camera based on input
                 if let Some(renderer) = &mut self.renderer {
                     let camera = renderer.camera_mut();
@@ -249,7 +262,6 @@ impl ApplicationHandler for App {
                         ui_renderer.begin_frame();
 
                         // Draw FPS counter
-                        let fps_text = format!("FPS: {:.0}", self.fps_counter.fps());
                         ui_renderer.draw_text(
                             &fps_text,
                             crate::math::Vec2::new(10.0, 10.0),

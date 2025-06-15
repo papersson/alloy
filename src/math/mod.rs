@@ -1,3 +1,14 @@
+//! Custom math library with SIMD-aligned types
+//!
+//! This module provides mathematical types and operations optimized for 3D graphics:
+//! - SIMD-aligned vector types (Vec2, Vec3, Vec4)
+//! - 4x4 matrix operations
+//! - Transform utilities
+//! - Camera projection matrices
+//!
+//! All types are 16-byte aligned for optimal SIMD performance.
+
+/// 2D vector with 16-byte alignment for SIMD operations
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec2 {
@@ -28,6 +39,7 @@ impl Default for Vec2 {
     }
 }
 
+/// 3D vector with 16-byte alignment for SIMD operations
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec3 {
@@ -104,6 +116,7 @@ impl Default for Vec3 {
     }
 }
 
+/// 4D vector with natural 16-byte alignment
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vec4 {
@@ -142,6 +155,7 @@ impl From<Vec3> for Vec4 {
     }
 }
 
+/// 4x4 matrix for 3D transformations (column-major order)
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Mat4 {
@@ -173,19 +187,40 @@ impl Mat4 {
 
     #[must_use]
     pub fn multiply(&self, other: &Self) -> Self {
-        let mut result = Self::zero();
-        for i in 0..4 {
-            for j in 0..4 {
-                let mut sum = 0.0;
-                for k in 0..4 {
-                    // Safe to unwrap here as we know indices are in bounds
-                    sum += self.get(i, k).unwrap_or(0.0) * other.get(k, j).unwrap_or(0.0);
-                }
-                // Safe to unwrap here as we know indices are in bounds
-                let _ = result.set(i, j, sum);
-            }
-        }
-        result
+        // Direct access to avoid bounds checking overhead
+        let a = &self.cols;
+        let b = &other.cols;
+
+        // Compute each column of the result
+        let col0 = Vec4::new(
+            a[0].x * b[0].x + a[1].x * b[0].y + a[2].x * b[0].z + a[3].x * b[0].w,
+            a[0].y * b[0].x + a[1].y * b[0].y + a[2].y * b[0].z + a[3].y * b[0].w,
+            a[0].z * b[0].x + a[1].z * b[0].y + a[2].z * b[0].z + a[3].z * b[0].w,
+            a[0].w * b[0].x + a[1].w * b[0].y + a[2].w * b[0].z + a[3].w * b[0].w,
+        );
+
+        let col1 = Vec4::new(
+            a[0].x * b[1].x + a[1].x * b[1].y + a[2].x * b[1].z + a[3].x * b[1].w,
+            a[0].y * b[1].x + a[1].y * b[1].y + a[2].y * b[1].z + a[3].y * b[1].w,
+            a[0].z * b[1].x + a[1].z * b[1].y + a[2].z * b[1].z + a[3].z * b[1].w,
+            a[0].w * b[1].x + a[1].w * b[1].y + a[2].w * b[1].z + a[3].w * b[1].w,
+        );
+
+        let col2 = Vec4::new(
+            a[0].x * b[2].x + a[1].x * b[2].y + a[2].x * b[2].z + a[3].x * b[2].w,
+            a[0].y * b[2].x + a[1].y * b[2].y + a[2].y * b[2].z + a[3].y * b[2].w,
+            a[0].z * b[2].x + a[1].z * b[2].y + a[2].z * b[2].z + a[3].z * b[2].w,
+            a[0].w * b[2].x + a[1].w * b[2].y + a[2].w * b[2].z + a[3].w * b[2].w,
+        );
+
+        let col3 = Vec4::new(
+            a[0].x * b[3].x + a[1].x * b[3].y + a[2].x * b[3].z + a[3].x * b[3].w,
+            a[0].y * b[3].x + a[1].y * b[3].y + a[2].y * b[3].z + a[3].y * b[3].w,
+            a[0].z * b[3].x + a[1].z * b[3].y + a[2].z * b[3].z + a[3].z * b[3].w,
+            a[0].w * b[3].x + a[1].w * b[3].y + a[2].w * b[3].z + a[3].w * b[3].w,
+        );
+
+        Self::new(col0, col1, col2, col3)
     }
 
     #[must_use]

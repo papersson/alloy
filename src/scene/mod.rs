@@ -1,7 +1,16 @@
+//! Scene graph and 3D object management
+//!
+//! This module provides the scene graph structure and components:
+//! - Camera with first-person controls
+//! - Mesh data structures
+//! - Scene nodes with hierarchical transforms
+//! - Lighting system
+
 use crate::math::{Mat4, Transform, Vec2, Vec3};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Point light with Phong shading parameters
 #[derive(Debug, Clone, Copy)]
 pub struct Light {
     pub position: Vec3,
@@ -24,6 +33,7 @@ impl Light {
     }
 }
 
+/// First-person camera with yaw/pitch controls
 pub struct Camera {
     position: Vec3,
     yaw: f32,

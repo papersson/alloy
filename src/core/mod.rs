@@ -1,9 +1,17 @@
+//! Core utilities for the game engine
+//!
+//! This module provides fundamental utilities including:
+//! - High-resolution timing for frame delta calculations
+//! - Texture loading and management
+//! - Logging macros
+
 mod texture;
 
 pub use texture::{Texture, TextureFormat};
 
 use std::time::Instant;
 
+/// High-resolution timer for frame timing
 pub struct Timer {
     #[allow(dead_code)]
     start: Instant,
