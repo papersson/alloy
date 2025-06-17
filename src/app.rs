@@ -1,5 +1,5 @@
 use crate::{
-    core::Timer,
+    core::{GravitySystem, SphericalWorld, Timer},
     input::InputState,
     log,
     math::Vec3,
@@ -27,42 +27,43 @@ pub struct App {
     frame_count: u32,
     fps_counter: FPSCounter,
     input_state: InputState,
+    gravity_system: GravitySystem,
+    planet_radius: f32,
 }
 
 impl App {
     pub fn new() -> Self {
+        let planet_radius = 50.0;
         Self {
             window: None,
             renderer: None,
             ui_renderer: None,
-            scene: Self::create_scene(),
+            scene: Self::create_spherical_scene(planet_radius),
             timer: Timer::new(),
             frame_count: 0,
             fps_counter: FPSCounter::new(),
             input_state: InputState::new(),
+            gravity_system: GravitySystem::new(Vec3::zero(), 9.8),
+            planet_radius,
         }
     }
 
-    fn create_scene() -> Scene {
+    fn create_spherical_scene(planet_radius: f32) -> Scene {
         let mut scene = Scene::new();
 
-        // Create ground plane
-        let ground_node = Rc::new(RefCell::new(Node::with_mesh(
-            "Ground".to_string(),
-            Mesh::plane(10.0, 10.0),
+        // Create spherical world
+        let world = SphericalWorld::new(planet_radius, 4); // 4 subdivisions for smooth sphere
+        let sphere_node = Rc::new(RefCell::new(Node::with_mesh(
+            "Planet".to_string(),
+            world.generate_mesh(),
         )));
-        ground_node.borrow_mut().transform.position = Vec3::new(0.0, -1.0, 0.0);
-        scene.add_node(ground_node);
+        scene.add_node(sphere_node);
 
-        // Create multiple cubes
+        // Add a few test cubes on the surface
         let positions = [
-            Vec3::new(0.0, 0.0, 0.0),
-            Vec3::new(2.0, 0.0, 0.0),
-            Vec3::new(-2.0, 0.0, 0.0),
-            Vec3::new(0.0, 0.0, 2.0),
-            Vec3::new(0.0, 0.0, -2.0),
-            Vec3::new(1.0, 1.0, 1.0),
-            Vec3::new(-1.0, 1.0, -1.0),
+            Vec3::new(0.0, planet_radius + 0.5, 0.0), // Top
+            Vec3::new(planet_radius + 0.5, 0.0, 0.0), // Side
+            Vec3::new(0.0, 0.0, planet_radius + 0.5), // Front
         ];
 
         for (i, &position) in positions.iter().enumerate() {
@@ -73,6 +74,9 @@ impl App {
             cube_node.borrow_mut().transform.position = position;
             scene.add_node(cube_node);
         }
+
+        // Set light above the planet
+        scene.light.position = Vec3::new(10.0, planet_radius + 20.0, 10.0);
 
         scene
     }
@@ -132,6 +136,21 @@ impl ApplicationHandler for App {
 
                                             self.renderer = Some(renderer);
                                             self.ui_renderer = Some(ui_renderer);
+
+                                            // Set initial camera position on the surface
+                                            if let Some(renderer) = &mut self.renderer {
+                                                let camera = renderer.camera_mut();
+                                                camera.set_position(Vec3::new(
+                                                    0.0,
+                                                    self.planet_radius + 2.0,
+                                                    5.0,
+                                                ));
+                                                let up = self
+                                                    .gravity_system
+                                                    .get_up_vector(camera.position());
+                                                camera.set_up_vector(up);
+                                            }
+
                                             log!("Renderer initialized successfully");
                                         }
                                         Err(e) => {
@@ -221,33 +240,57 @@ impl ApplicationHandler for App {
                 if let Some(renderer) = &mut self.renderer {
                     let camera = renderer.camera_mut();
 
-                    // Handle movement
+                    // Get current position and update up vector based on gravity
+                    let position = camera.position();
+                    let up = self.gravity_system.get_up_vector(position);
+                    camera.set_up_vector(up);
+
+                    // Handle movement - constrained to sphere surface
                     let movement_speed = self.input_state.movement_speed() * delta;
+                    let mut new_position = position;
 
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyW))
                     {
-                        camera.move_forward(movement_speed);
+                        let forward = camera.forward();
+                        new_position = new_position.add(&forward.scale(movement_speed));
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyS))
                     {
-                        camera.move_forward(-movement_speed);
+                        let forward = camera.forward();
+                        new_position = new_position.add(&forward.scale(-movement_speed));
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyA))
                     {
-                        camera.move_right(-movement_speed);
+                        let right = camera.right();
+                        new_position = new_position.add(&right.scale(-movement_speed));
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyD))
                     {
-                        camera.move_right(movement_speed);
+                        let right = camera.right();
+                        new_position = new_position.add(&right.scale(movement_speed));
                     }
+
+                    // Keep camera at fixed height above surface
+                    let from_center = new_position.sub(&self.gravity_system.planet_center);
+                    let distance_from_center = from_center.length();
+                    if distance_from_center > 0.0 {
+                        // Maintain constant distance from planet center (radius + height)
+                        let desired_distance = self.planet_radius + 2.0; // 2 units above surface
+                        new_position = from_center
+                            .normalize()
+                            .scale(desired_distance)
+                            .add(&self.gravity_system.planet_center);
+                    }
+
+                    camera.set_position(new_position);
 
                     // Handle rotation
                     let (dx, dy) = self.input_state.mouse_delta();

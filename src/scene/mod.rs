@@ -73,20 +73,36 @@ impl Camera {
 
     #[must_use]
     pub fn forward(&self) -> Vec3 {
-        Vec3::new(
-            self.yaw.cos() * self.pitch.cos(),
-            -self.pitch.sin(),
-            self.yaw.sin() * self.pitch.cos(),
-        )
+        // For spherical movement, forward needs to be calculated relative to the up vector
+        // First, get a right vector perpendicular to up
+        let world_up = Vec3::new(0.0, 1.0, 0.0);
+        let right = if (self.up.dot(&world_up).abs() - 1.0).abs() < 0.01 {
+            // If up is parallel to world up, use a different vector for cross product
+            Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            world_up.cross(&self.up).normalize()
+        };
+
+        // Create a forward vector in the plane perpendicular to up
+        let forward_flat = self.up.cross(&right).normalize();
+
+        // Apply yaw rotation around up axis
+        let cos_yaw = self.yaw.cos();
+        let sin_yaw = self.yaw.sin();
+        let yawed_forward = forward_flat.scale(cos_yaw).add(&right.scale(sin_yaw));
+
+        // Apply pitch rotation
+        let cos_pitch = self.pitch.cos();
+        let sin_pitch = self.pitch.sin();
+        yawed_forward
+            .scale(cos_pitch)
+            .add(&self.up.scale(-sin_pitch))
     }
 
     #[must_use]
     pub fn right(&self) -> Vec3 {
-        Vec3::new(
-            (self.yaw - std::f32::consts::FRAC_PI_2).cos(),
-            0.0,
-            (self.yaw - std::f32::consts::FRAC_PI_2).sin(),
-        )
+        // Right vector is perpendicular to both forward and up
+        self.up.cross(&self.forward()).normalize()
     }
 
     #[must_use]
@@ -123,6 +139,15 @@ impl Camera {
 
     pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) {
         self.aspect_ratio = aspect_ratio;
+    }
+
+    pub fn set_up_vector(&mut self, up: Vec3) {
+        self.up = up.normalize();
+    }
+
+    #[must_use]
+    pub fn up_vector(&self) -> Vec3 {
+        self.up
     }
 
     #[must_use]

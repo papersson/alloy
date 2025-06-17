@@ -5,8 +5,12 @@
 //! - Texture loading and management
 //! - Logging macros
 
+mod gravity;
+mod spherical_world;
 mod texture;
 
+pub use gravity::GravitySystem;
+pub use spherical_world::SphericalWorld;
 pub use texture::{Texture, TextureFormat};
 
 use std::time::Instant;
