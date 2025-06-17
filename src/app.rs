@@ -1,5 +1,5 @@
 use crate::{
-    core::{GravitySystem, SphericalWorld, Timer},
+    core::{GravitySystem, Skybox, SphericalWorld, Timer},
     input::InputState,
     log,
     math::Vec3,
@@ -29,6 +29,7 @@ pub struct App {
     input_state: InputState,
     gravity_system: GravitySystem,
     planet_radius: f32,
+    skybox: Skybox,
 }
 
 impl App {
@@ -45,6 +46,7 @@ impl App {
             input_state: InputState::new(),
             gravity_system: GravitySystem::new(Vec3::zero(), 9.8),
             planet_radius,
+            skybox: Skybox::new(),
         }
     }
 
@@ -152,6 +154,15 @@ impl ApplicationHandler for App {
                                             }
 
                                             log!("Renderer initialized successfully");
+
+                                            // Initialize skybox
+                                            if let Some(renderer) = &mut self.renderer {
+                                                if let Err(e) =
+                                                    renderer.initialize_skybox(&self.skybox)
+                                                {
+                                                    log!("Failed to initialize skybox: {}", e);
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             log!("Failed to initialize UI renderer: {}", e);
@@ -238,6 +249,9 @@ impl ApplicationHandler for App {
 
                 // Update camera based on input
                 if let Some(renderer) = &mut self.renderer {
+                    // Update renderer time for skybox animation
+                    renderer.update_time(delta);
+
                     let camera = renderer.camera_mut();
 
                     // Get current position and update up vector based on gravity

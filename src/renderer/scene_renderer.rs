@@ -33,7 +33,22 @@ struct Uniforms {
     ambient_strength: f32,
     diffuse_strength: f32,
     specular_strength: f32,
-    _padding2: [f32; 2],
+    fog_density: f32,
+    fog_color: Vec3,
+    fog_start: f32,
+    horizon_color: Vec3,
+    _padding2: f32,
+    zenith_color: Vec3,
+    _padding3: f32,
+}
+
+#[repr(C)]
+struct SkyboxUniforms {
+    view_projection_matrix: Mat4,
+    camera_pos: Vec3,
+    time: f32,
+    sun_direction: Vec3,
+    _padding: f32,
 }
 
 struct MeshBuffers {
@@ -49,14 +64,18 @@ pub struct SceneRenderer {
     layer: Retained<CAMetalLayer>,
     pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     ui_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    skybox_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     ui_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
+    skybox_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     depth_texture: Option<Retained<ProtocolObject<dyn MTLTexture>>>,
     default_texture: Texture,
     sampler_state: Retained<ProtocolObject<dyn MTLSamplerState>>,
     drawable_size: (u32, u32),
     camera: Camera,
     mesh_buffers: HashMap<*const Mesh, MeshBuffers>,
+    skybox_buffers: Option<MeshBuffers>,
+    time: f32,
 }
 
 impl SceneRenderer {
@@ -72,8 +91,10 @@ impl SceneRenderer {
 
         let pipeline_state = Self::create_pipeline_state(&device)?;
         let ui_pipeline_state = Self::create_ui_pipeline_state(&device)?;
+        let skybox_pipeline_state = Self::create_skybox_pipeline_state(&device)?;
         let depth_stencil_state = Self::create_depth_stencil_state(&device)?;
         let ui_depth_stencil_state = Self::create_ui_depth_stencil_state(&device)?;
+        let skybox_depth_stencil_state = Self::create_skybox_depth_stencil_state(&device)?;
         let depth_texture = Self::create_depth_texture(&device, width, height)?;
 
         let default_texture = Self::create_checkerboard_texture(&device)?;
@@ -92,14 +113,18 @@ impl SceneRenderer {
             layer,
             pipeline_state,
             ui_pipeline_state,
+            skybox_pipeline_state,
             depth_stencil_state,
             ui_depth_stencil_state,
+            skybox_depth_stencil_state,
             depth_texture: Some(depth_texture),
             default_texture,
             sampler_state,
             drawable_size: (width, height),
             camera,
             mesh_buffers: HashMap::new(),
+            skybox_buffers: None,
+            time: 0.0,
         })
     }
 
@@ -362,6 +387,83 @@ impl SceneRenderer {
         Ok(state)
     }
 
+    fn create_skybox_pipeline_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, String> {
+        let shader_source = include_str!("../shaders/skybox.metal");
+        let shader_source = NSString::from_str(shader_source);
+
+        let compile_options = MTLCompileOptions::new();
+        let library = device
+            .newLibraryWithSource_options_error(&shader_source, Some(&compile_options))
+            .map_err(|e| format!("Failed to compile skybox shaders: {:?}", e))?;
+
+        let vertex_function = library
+            .newFunctionWithName(&NSString::from_str("skybox_vertex"))
+            .ok_or_else(|| "Failed to find skybox vertex shader".to_string())?;
+
+        let fragment_function = library
+            .newFunctionWithName(&NSString::from_str("skybox_fragment"))
+            .ok_or_else(|| "Failed to find skybox fragment shader".to_string())?;
+
+        let vertex_descriptor = unsafe { MTLVertexDescriptor::new() };
+
+        unsafe {
+            let position_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(0);
+            position_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            position_attr.setOffset(0);
+            position_attr.setBufferIndex(0);
+
+            let tex_coord_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(1);
+            tex_coord_attr.setFormat(objc2_metal::MTLVertexFormat::Float2);
+            tex_coord_attr.setOffset(std::mem::offset_of!(Vertex, tex_coord));
+            tex_coord_attr.setBufferIndex(0);
+
+            let normal_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(2);
+            normal_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            normal_attr.setOffset(std::mem::offset_of!(Vertex, normal));
+            normal_attr.setBufferIndex(0);
+
+            let layout = vertex_descriptor.layouts().objectAtIndexedSubscript(0);
+            layout.setStride(std::mem::size_of::<Vertex>());
+        }
+
+        let pipeline_descriptor = MTLRenderPipelineDescriptor::new();
+        pipeline_descriptor.setVertexFunction(Some(&vertex_function));
+        pipeline_descriptor.setFragmentFunction(Some(&fragment_function));
+        pipeline_descriptor.setVertexDescriptor(Some(&vertex_descriptor));
+
+        unsafe {
+            let color_attachment = pipeline_descriptor
+                .colorAttachments()
+                .objectAtIndexedSubscript(0);
+            color_attachment.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+        }
+
+        pipeline_descriptor.setDepthAttachmentPixelFormat(MTLPixelFormat::Depth32Float);
+
+        let pipeline_state = device
+            .newRenderPipelineStateWithDescriptor_error(&pipeline_descriptor)
+            .map_err(|e| format!("Failed to create skybox pipeline state: {:?}", e))?;
+
+        Ok(pipeline_state)
+    }
+
+    fn create_skybox_depth_stencil_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
+        let descriptor = unsafe { MTLDepthStencilDescriptor::new() };
+        // Skybox should render behind everything but still depth test
+        descriptor.setDepthCompareFunction(objc2_metal::MTLCompareFunction::LessEqual);
+        descriptor.setDepthWriteEnabled(false); // Don't write to depth buffer
+
+        let state = device
+            .newDepthStencilStateWithDescriptor(&descriptor)
+            .ok_or_else(|| "Failed to create skybox depth stencil state".to_string())?;
+
+        Ok(state)
+    }
+
     fn create_ui_depth_stencil_state(
         device: &ProtocolObject<dyn MTLDevice>,
     ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
@@ -484,6 +586,10 @@ impl SceneRenderer {
                 .objectAtIndexedSubscript(0)
         };
 
+        // Define sky colors
+        let horizon_color = Vec3::new(0.7, 0.8, 0.9); // Light blue-gray
+        let zenith_color = Vec3::new(0.2, 0.4, 0.8); // Deeper blue
+
         unsafe {
             color_attachment.setTexture(Some(&drawable.texture()));
             color_attachment.setLoadAction(MTLLoadAction::Clear);
@@ -492,14 +598,10 @@ impl SceneRenderer {
             let camera_up = self.camera.up_vector();
             let up_y = camera_up.y.clamp(-1.0, 1.0);
 
-            // Interpolate between horizon color and zenith color
-            let horizon_color = (0.7, 0.8, 0.9); // Light blue-gray
-            let zenith_color = (0.2, 0.4, 0.8); // Deeper blue
-
             let t = (up_y + 1.0) * 0.5; // Map from [-1, 1] to [0, 1]
-            let red = horizon_color.0 + (zenith_color.0 - horizon_color.0) * t;
-            let green = horizon_color.1 + (zenith_color.1 - horizon_color.1) * t;
-            let blue = horizon_color.2 + (zenith_color.2 - horizon_color.2) * t;
+            let red = horizon_color.x + (zenith_color.x - horizon_color.x) * t;
+            let green = horizon_color.y + (zenith_color.y - horizon_color.y) * t;
+            let blue = horizon_color.z + (zenith_color.z - horizon_color.z) * t;
 
             color_attachment.setClearColor(MTLClearColor {
                 red: red as f64,
@@ -524,6 +626,59 @@ impl SceneRenderer {
             let label = NSString::from_str("Scene Encoder");
             render_encoder.setLabel(Some(&label));
 
+            // Render skybox first
+            if let Some(skybox_buffers) = &self.skybox_buffers {
+                render_encoder.setRenderPipelineState(&self.skybox_pipeline_state);
+                render_encoder.setDepthStencilState(Some(&self.skybox_depth_stencil_state));
+
+                // Update skybox uniforms
+                let skybox_uniforms = SkyboxUniforms {
+                    view_projection_matrix: self.camera.view_projection_matrix(),
+                    camera_pos: self.camera.position(),
+                    time: self.time,
+                    sun_direction: Vec3::new(0.5, 0.8, 0.3).normalize(),
+                    _padding: 0.0,
+                };
+
+                // Safety: The uniform buffer was created with at least sizeof(SkyboxUniforms) bytes.
+                unsafe {
+                    let contents = skybox_buffers.uniform_buffer.contents();
+                    std::ptr::copy_nonoverlapping(
+                        &raw const skybox_uniforms,
+                        contents.as_ptr().cast::<SkyboxUniforms>(),
+                        1,
+                    );
+                }
+
+                unsafe {
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&skybox_buffers.vertex_buffer),
+                        0,
+                        0,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&skybox_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+                    render_encoder.setFragmentBuffer_offset_atIndex(
+                        Some(&skybox_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+
+                    render_encoder
+                        .drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(
+                            MTLPrimitiveType::Triangle,
+                            skybox_buffers.index_count,
+                            MTLIndexType::UInt16,
+                            &skybox_buffers.index_buffer,
+                            0,
+                        );
+                }
+            }
+
+            // Switch back to regular pipeline for scene objects
             render_encoder.setRenderPipelineState(&self.pipeline_state);
             render_encoder.setDepthStencilState(Some(&self.depth_stencil_state));
 
@@ -551,7 +706,13 @@ impl SceneRenderer {
                             ambient_strength: scene.light.ambient,
                             diffuse_strength: scene.light.diffuse,
                             specular_strength: scene.light.specular,
-                            _padding2: [0.0; 2],
+                            fog_density: 0.02,
+                            fog_color: Vec3::new(0.7, 0.8, 0.9), // Base fog color
+                            fog_start: 10.0,
+                            horizon_color,
+                            _padding2: 0.0,
+                            zenith_color,
+                            _padding3: 0.0,
                         };
                         // Safety: The uniform buffer was created with at least sizeof(Uniforms) bytes.
                         // The buffer contents pointer is valid for the lifetime of the buffer.
@@ -658,6 +819,31 @@ impl SceneRenderer {
         if let Ok(depth_texture) = Self::create_depth_texture(&self.device, width, height) {
             self.depth_texture = Some(depth_texture);
         }
+    }
+
+    pub fn initialize_skybox(&mut self, skybox: &crate::core::Skybox) -> Result<(), String> {
+        let vertex_buffer = Self::create_vertex_buffer(&self.device, &skybox.mesh)?;
+        let index_buffer = Self::create_index_buffer(&self.device, &skybox.mesh)?;
+        let uniform_buffer = self
+            .device
+            .newBufferWithLength_options(
+                std::mem::size_of::<SkyboxUniforms>(),
+                MTLResourceOptions::empty(),
+            )
+            .ok_or_else(|| "Failed to create skybox uniform buffer".to_string())?;
+
+        self.skybox_buffers = Some(MeshBuffers {
+            vertex_buffer,
+            index_buffer,
+            uniform_buffer,
+            index_count: skybox.mesh.indices.len(),
+        });
+
+        Ok(())
+    }
+
+    pub fn update_time(&mut self, delta_time: f32) {
+        self.time += delta_time;
     }
 
     pub fn camera_mut(&mut self) -> &mut Camera {

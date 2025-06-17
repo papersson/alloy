@@ -13,7 +13,13 @@ struct Uniforms {
     float ambient_strength;
     float diffuse_strength;
     float specular_strength;
-    float2 _padding2;
+    float fog_density;
+    float3 fog_color;
+    float fog_start;
+    float3 horizon_color;
+    float _padding2;
+    float3 zenith_color;
+    float _padding3;
 };
 
 struct VertexIn {
@@ -66,6 +72,20 @@ fragment float4 cube_fragment(
     
     // Combine all lighting components
     float3 result = (ambient + diffuse + specular) * object_color.rgb;
+    
+    // Calculate fog based on distance from camera
+    float distance = length(uniforms.view_pos - in.world_pos);
+    float fog_factor = 1.0 - exp(-uniforms.fog_density * max(0.0, distance - uniforms.fog_start));
+    fog_factor = clamp(fog_factor, 0.0, 1.0);
+    
+    // Mix with fog color (using the dynamic sky color)
+    // Calculate view direction for sky gradient
+    float3 normalized_view = normalize(in.world_pos - uniforms.view_pos);
+    float up_dot = dot(normalized_view, float3(0.0, 1.0, 0.0));
+    float sky_gradient = (up_dot + 1.0) * 0.5; // Map from [-1,1] to [0,1]
+    float3 current_fog_color = mix(uniforms.horizon_color, uniforms.zenith_color, sky_gradient);
+    
+    result = mix(result, current_fog_color, fog_factor);
     
     return float4(result, object_color.a);
 }
