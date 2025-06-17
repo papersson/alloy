@@ -38,6 +38,9 @@ pub struct Camera {
     position: Vec3,
     yaw: f32,
     pitch: f32,
+    target_yaw: f32,
+    target_pitch: f32,
+    rotation_smoothing: f32,
     up: Vec3,
     target_up: Vec3,
     up_smoothing: f32,
@@ -59,6 +62,9 @@ impl Camera {
             position,
             yaw,
             pitch,
+            target_yaw: yaw,
+            target_pitch: pitch,
+            rotation_smoothing: 0.15,
             up: Vec3::new(0.0, 1.0, 0.0),
             target_up: Vec3::new(0.0, 1.0, 0.0),
             up_smoothing: 0.1,
@@ -124,8 +130,8 @@ impl Camera {
     }
 
     pub fn rotate(&mut self, yaw_delta: f32, pitch_delta: f32) {
-        self.yaw += yaw_delta;
-        self.pitch = (self.pitch + pitch_delta).clamp(
+        self.target_yaw += yaw_delta;
+        self.target_pitch = (self.target_pitch + pitch_delta).clamp(
             -std::f32::consts::FRAC_PI_2 + 0.01,
             std::f32::consts::FRAC_PI_2 - 0.01,
         );
@@ -151,12 +157,14 @@ impl Camera {
 
     pub fn update(&mut self, delta_time: f32) {
         // Smooth interpolation of up vector
-        let interpolation_factor = 1.0 - (-self.up_smoothing * delta_time).exp();
+        let up_interpolation = 1.0 - (-self.up_smoothing * delta_time).exp();
         let up_diff = self.target_up.sub(&self.up);
-        self.up = self
-            .up
-            .add(&up_diff.scale(interpolation_factor))
-            .normalize();
+        self.up = self.up.add(&up_diff.scale(up_interpolation)).normalize();
+
+        // Smooth interpolation of rotation
+        let rotation_interpolation = 1.0 - (-self.rotation_smoothing * delta_time).exp();
+        self.yaw += (self.target_yaw - self.yaw) * rotation_interpolation;
+        self.pitch += (self.target_pitch - self.pitch) * rotation_interpolation;
     }
 
     #[must_use]

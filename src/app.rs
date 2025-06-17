@@ -249,7 +249,19 @@ impl ApplicationHandler for App {
                     camera.update(delta);
 
                     // Handle movement - constrained to sphere surface
-                    let movement_speed = self.input_state.movement_speed() * delta;
+                    let base_speed = self.input_state.movement_speed();
+                    let speed_multiplier = if self
+                        .input_state
+                        .is_key_pressed(PhysicalKey::Code(KeyCode::ShiftLeft))
+                        || self
+                            .input_state
+                            .is_key_pressed(PhysicalKey::Code(KeyCode::ShiftRight))
+                    {
+                        2.0 // Run speed
+                    } else {
+                        1.0 // Walk speed
+                    };
+                    let movement_speed = base_speed * speed_multiplier * delta;
                     let mut new_position = position;
 
                     // Project movement vectors onto the tangent plane of the sphere
