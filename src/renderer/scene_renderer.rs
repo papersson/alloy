@@ -487,10 +487,24 @@ impl SceneRenderer {
         unsafe {
             color_attachment.setTexture(Some(&drawable.texture()));
             color_attachment.setLoadAction(MTLLoadAction::Clear);
+
+            // Simple sky gradient based on camera up direction
+            let camera_up = self.camera.up_vector();
+            let up_y = camera_up.y.clamp(-1.0, 1.0);
+
+            // Interpolate between horizon color and zenith color
+            let horizon_color = (0.7, 0.8, 0.9); // Light blue-gray
+            let zenith_color = (0.2, 0.4, 0.8); // Deeper blue
+
+            let t = (up_y + 1.0) * 0.5; // Map from [-1, 1] to [0, 1]
+            let red = horizon_color.0 + (zenith_color.0 - horizon_color.0) * t;
+            let green = horizon_color.1 + (zenith_color.1 - horizon_color.1) * t;
+            let blue = horizon_color.2 + (zenith_color.2 - horizon_color.2) * t;
+
             color_attachment.setClearColor(MTLClearColor {
-                red: 0.2,
-                green: 0.3,
-                blue: 0.4,
+                red: red as f64,
+                green: green as f64,
+                blue: blue as f64,
                 alpha: 1.0,
             });
             color_attachment.setStoreAction(MTLStoreAction::Store);
