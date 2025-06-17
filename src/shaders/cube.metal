@@ -6,7 +6,7 @@ struct Uniforms {
     float4x4 model_matrix;
     float4x4 normal_matrix;
     float3 view_pos;
-    float _padding0;
+    float time;
     float3 light_pos;
     float _padding1;
     float3 light_color;

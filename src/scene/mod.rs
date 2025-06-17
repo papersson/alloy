@@ -186,9 +186,22 @@ pub struct Vertex {
     pub normal: Vec3,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct InstanceData {
+    pub transform: Mat4,
+    pub color_variation: Vec3,
+    pub _padding: f32,
+}
+
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u16>,
+}
+
+pub struct InstancedMesh {
+    pub base_mesh: Mesh,
+    pub instances: Vec<InstanceData>,
 }
 
 impl Mesh {
@@ -362,6 +375,39 @@ impl Mesh {
                 position: Vec3::new(-half_width, 0.0, half_depth),
                 tex_coord: Vec2::new(0.0, 1.0),
                 normal: Vec3::new(0.0, 1.0, 0.0),
+            },
+        ];
+
+        let indices = vec![0, 1, 2, 0, 2, 3];
+
+        Self { vertices, indices }
+    }
+
+    #[must_use]
+    pub fn grass_blade() -> Self {
+        // Simple grass blade: a quad that's narrow at the base and wider at the top
+        let vertices = vec![
+            // Bottom vertices (narrow)
+            Vertex {
+                position: Vec3::new(-0.025, 0.0, 0.0),
+                tex_coord: Vec2::new(0.0, 1.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+            },
+            Vertex {
+                position: Vec3::new(0.025, 0.0, 0.0),
+                tex_coord: Vec2::new(1.0, 1.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+            },
+            // Top vertices (wider)
+            Vertex {
+                position: Vec3::new(0.05, 0.3, 0.0),
+                tex_coord: Vec2::new(1.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
+            },
+            Vertex {
+                position: Vec3::new(-0.05, 0.3, 0.0),
+                tex_coord: Vec2::new(0.0, 0.0),
+                normal: Vec3::new(0.0, 0.0, 1.0),
             },
         ];
 

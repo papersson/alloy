@@ -1,4 +1,4 @@
-use crate::core::Texture;
+use crate::core::{GrassSystem, Texture};
 use crate::math::{Mat4, Vec3};
 use crate::scene::{Camera, Mesh, Scene, Vertex};
 use crate::ui::{UIRenderer, UIVertex};
@@ -26,7 +26,7 @@ struct Uniforms {
     model_matrix: Mat4,
     normal_matrix: Mat4,
     view_pos: Vec3,
-    _padding0: f32,
+    time: f32,
     light_pos: Vec3,
     _padding1: f32,
     light_color: Vec3,
@@ -58,6 +58,15 @@ struct MeshBuffers {
     index_count: usize,
 }
 
+struct GrassBuffers {
+    vertex_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+    index_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+    instance_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+    uniform_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+    index_count: usize,
+    instance_count: usize,
+}
+
 pub struct SceneRenderer {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     command_queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
@@ -65,6 +74,7 @@ pub struct SceneRenderer {
     pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     ui_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     skybox_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    grass_pipeline_state: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
     depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     ui_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     skybox_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
@@ -75,6 +85,7 @@ pub struct SceneRenderer {
     camera: Camera,
     mesh_buffers: HashMap<*const Mesh, MeshBuffers>,
     skybox_buffers: Option<MeshBuffers>,
+    grass_buffers: Option<GrassBuffers>,
     time: f32,
 }
 
@@ -114,6 +125,7 @@ impl SceneRenderer {
             pipeline_state,
             ui_pipeline_state,
             skybox_pipeline_state,
+            grass_pipeline_state: None,
             depth_stencil_state,
             ui_depth_stencil_state,
             skybox_depth_stencil_state,
@@ -124,6 +136,7 @@ impl SceneRenderer {
             camera,
             mesh_buffers: HashMap::new(),
             skybox_buffers: None,
+            grass_buffers: None,
             time: 0.0,
         })
     }
@@ -464,6 +477,71 @@ impl SceneRenderer {
         Ok(state)
     }
 
+    fn create_grass_pipeline_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, String> {
+        let shader_source = include_str!("../shaders/grass.metal");
+        let shader_source = NSString::from_str(shader_source);
+
+        let compile_options = MTLCompileOptions::new();
+        let library = device
+            .newLibraryWithSource_options_error(&shader_source, Some(&compile_options))
+            .map_err(|e| format!("Failed to compile grass shaders: {:?}", e))?;
+
+        let vertex_function = library
+            .newFunctionWithName(&NSString::from_str("grass_vertex"))
+            .ok_or_else(|| "Failed to find grass vertex shader".to_string())?;
+
+        let fragment_function = library
+            .newFunctionWithName(&NSString::from_str("grass_fragment"))
+            .ok_or_else(|| "Failed to find grass fragment shader".to_string())?;
+
+        let vertex_descriptor = unsafe { MTLVertexDescriptor::new() };
+
+        unsafe {
+            // Per-vertex attributes
+            let position_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(0);
+            position_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            position_attr.setOffset(0);
+            position_attr.setBufferIndex(0);
+
+            let tex_coord_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(1);
+            tex_coord_attr.setFormat(objc2_metal::MTLVertexFormat::Float2);
+            tex_coord_attr.setOffset(std::mem::offset_of!(Vertex, tex_coord));
+            tex_coord_attr.setBufferIndex(0);
+
+            let normal_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(2);
+            normal_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            normal_attr.setOffset(std::mem::offset_of!(Vertex, normal));
+            normal_attr.setBufferIndex(0);
+
+            let layout = vertex_descriptor.layouts().objectAtIndexedSubscript(0);
+            layout.setStride(std::mem::size_of::<Vertex>());
+            layout.setStepFunction(objc2_metal::MTLVertexStepFunction::PerVertex);
+            layout.setStepRate(1);
+        }
+
+        let pipeline_descriptor = MTLRenderPipelineDescriptor::new();
+        pipeline_descriptor.setVertexFunction(Some(&vertex_function));
+        pipeline_descriptor.setFragmentFunction(Some(&fragment_function));
+        pipeline_descriptor.setVertexDescriptor(Some(&vertex_descriptor));
+
+        unsafe {
+            let color_attachment = pipeline_descriptor
+                .colorAttachments()
+                .objectAtIndexedSubscript(0);
+            color_attachment.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+        }
+
+        pipeline_descriptor.setDepthAttachmentPixelFormat(MTLPixelFormat::Depth32Float);
+
+        let pipeline_state = device
+            .newRenderPipelineStateWithDescriptor_error(&pipeline_descriptor)
+            .map_err(|e| format!("Failed to create grass pipeline state: {:?}", e))?;
+
+        Ok(pipeline_state)
+    }
+
     fn create_ui_depth_stencil_state(
         device: &ProtocolObject<dyn MTLDevice>,
     ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
@@ -682,6 +760,82 @@ impl SceneRenderer {
             render_encoder.setRenderPipelineState(&self.pipeline_state);
             render_encoder.setDepthStencilState(Some(&self.depth_stencil_state));
 
+            // Render grass if available
+            if let (Some(grass_buffers), Some(grass_pipeline)) =
+                (&self.grass_buffers, &self.grass_pipeline_state)
+            {
+                render_encoder.setRenderPipelineState(grass_pipeline);
+
+                // Update grass uniforms
+                let grass_uniforms = Uniforms {
+                    mvp_matrix: self.camera.view_projection_matrix(), // Not used in grass shader but keeping struct consistent
+                    model_matrix: Mat4::identity(),                   // Not used
+                    normal_matrix: Mat4::identity(),                  // Not used
+                    view_pos: self.camera.position(),
+                    time: self.time,
+                    light_pos: scene.light.position,
+                    _padding1: 0.0,
+                    light_color: scene.light.color,
+                    ambient_strength: scene.light.ambient,
+                    diffuse_strength: scene.light.diffuse,
+                    specular_strength: scene.light.specular,
+                    fog_density: 0.02,
+                    fog_color: Vec3::new(0.7, 0.8, 0.9),
+                    fog_start: 10.0,
+                    horizon_color,
+                    _padding2: 0.0,
+                    zenith_color,
+                    _padding3: 0.0,
+                };
+
+                unsafe {
+                    let contents = grass_buffers.uniform_buffer.contents();
+                    std::ptr::copy_nonoverlapping(
+                        &raw const grass_uniforms,
+                        contents.as_ptr().cast::<Uniforms>(),
+                        1,
+                    );
+                }
+
+                unsafe {
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&grass_buffers.vertex_buffer),
+                        0,
+                        0,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&grass_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&grass_buffers.instance_buffer),
+                        0,
+                        2,
+                    );
+
+                    render_encoder.setFragmentBuffer_offset_atIndex(
+                        Some(&grass_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+
+                    // Use drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:instanceCount:
+                    let _: () = msg_send![
+                        &*render_encoder,
+                        drawIndexedPrimitives: MTLPrimitiveType::Triangle,
+                        indexCount: grass_buffers.index_count,
+                        indexType: MTLIndexType::UInt16,
+                        indexBuffer: &*grass_buffers.index_buffer,
+                        indexBufferOffset: 0usize,
+                        instanceCount: grass_buffers.instance_count
+                    ];
+                }
+
+                // Switch back to regular pipeline
+                render_encoder.setRenderPipelineState(&self.pipeline_state);
+            }
+
             // Render all nodes in the scene
             scene.traverse(|node, world_transform| {
                 if let Some(mesh) = &node.mesh {
@@ -699,7 +853,7 @@ impl SceneRenderer {
                             model_matrix: world_transform.clone(),
                             normal_matrix,
                             view_pos: self.camera.position(),
-                            _padding0: 0.0,
+                            time: self.time,
                             light_pos: scene.light.position,
                             _padding1: 0.0,
                             light_color: scene.light.color,
@@ -852,5 +1006,55 @@ impl SceneRenderer {
 
     pub fn device(&self) -> &ProtocolObject<dyn MTLDevice> {
         &self.device
+    }
+
+    pub fn initialize_grass(&mut self, grass_system: &GrassSystem) -> Result<(), String> {
+        // Create grass pipeline if not already created
+        if self.grass_pipeline_state.is_none() {
+            self.grass_pipeline_state = Some(Self::create_grass_pipeline_state(&self.device)?);
+        }
+
+        let instanced_mesh = grass_system.instanced_mesh();
+
+        // Create buffers
+        let vertex_buffer = Self::create_vertex_buffer(&self.device, &instanced_mesh.base_mesh)?;
+        let index_buffer = Self::create_index_buffer(&self.device, &instanced_mesh.base_mesh)?;
+
+        // Create instance buffer
+        let instance_data = instanced_mesh.instances.as_slice();
+        let instance_buffer_size = std::mem::size_of_val(instance_data);
+
+        let instance_data_ptr =
+            std::ptr::NonNull::new(instance_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
+                .ok_or_else(|| "Failed to create NonNull pointer for instance data".to_string())?;
+
+        let instance_buffer = unsafe {
+            self.device.newBufferWithBytes_length_options(
+                instance_data_ptr,
+                instance_buffer_size,
+                MTLResourceOptions::empty(),
+            )
+        }
+        .ok_or_else(|| "Failed to create instance buffer".to_string())?;
+
+        // Create uniform buffer for grass
+        let uniform_buffer = self
+            .device
+            .newBufferWithLength_options(
+                std::mem::size_of::<Uniforms>(),
+                MTLResourceOptions::empty(),
+            )
+            .ok_or_else(|| "Failed to create grass uniform buffer".to_string())?;
+
+        self.grass_buffers = Some(GrassBuffers {
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+            uniform_buffer,
+            index_count: instanced_mesh.base_mesh.indices.len(),
+            instance_count: instanced_mesh.instances.len(),
+        });
+
+        Ok(())
     }
 }

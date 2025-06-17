@@ -5,11 +5,13 @@
 //! - Texture loading and management
 //! - Logging macros
 
+mod grass;
 mod gravity;
 mod skybox;
 mod spherical_world;
 mod texture;
 
+pub use grass::GrassSystem;
 pub use gravity::GravitySystem;
 pub use skybox::Skybox;
 pub use spherical_world::SphericalWorld;

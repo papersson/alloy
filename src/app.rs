@@ -1,5 +1,5 @@
 use crate::{
-    core::{GravitySystem, Skybox, SphericalWorld, Timer},
+    core::{GrassSystem, GravitySystem, Skybox, SphericalWorld, Timer},
     input::InputState,
     log,
     math::Vec3,
@@ -30,6 +30,7 @@ pub struct App {
     gravity_system: GravitySystem,
     planet_radius: f32,
     skybox: Skybox,
+    grass_system: Option<GrassSystem>,
 }
 
 impl App {
@@ -47,6 +48,7 @@ impl App {
             gravity_system: GravitySystem::new(Vec3::zero(), 9.8),
             planet_radius,
             skybox: Skybox::new(),
+            grass_system: None,
         }
     }
 
@@ -161,6 +163,23 @@ impl ApplicationHandler for App {
                                                     renderer.initialize_skybox(&self.skybox)
                                                 {
                                                     log!("Failed to initialize skybox: {}", e);
+                                                }
+                                            }
+
+                                            // Initialize grass system
+                                            let grass_density = 0.5; // grass blades per square meter
+                                            self.grass_system = Some(GrassSystem::new(
+                                                self.planet_radius,
+                                                grass_density,
+                                            ));
+
+                                            if let (Some(renderer), Some(grass_system)) =
+                                                (&mut self.renderer, &self.grass_system)
+                                            {
+                                                if let Err(e) =
+                                                    renderer.initialize_grass(grass_system)
+                                                {
+                                                    log!("Failed to initialize grass: {}", e);
                                                 }
                                             }
                                         }
