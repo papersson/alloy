@@ -39,6 +39,8 @@ pub struct Camera {
     yaw: f32,
     pitch: f32,
     up: Vec3,
+    target_up: Vec3,
+    up_smoothing: f32,
     fov_y: f32,
     aspect_ratio: f32,
     near: f32,
@@ -58,6 +60,8 @@ impl Camera {
             yaw,
             pitch,
             up: Vec3::new(0.0, 1.0, 0.0),
+            target_up: Vec3::new(0.0, 1.0, 0.0),
+            up_smoothing: 0.1,
             fov_y: std::f32::consts::PI / 4.0,
             aspect_ratio,
             near: 0.1,
@@ -142,7 +146,17 @@ impl Camera {
     }
 
     pub fn set_up_vector(&mut self, up: Vec3) {
-        self.up = up.normalize();
+        self.target_up = up.normalize();
+    }
+
+    pub fn update(&mut self, delta_time: f32) {
+        // Smooth interpolation of up vector
+        let interpolation_factor = 1.0 - (-self.up_smoothing * delta_time).exp();
+        let up_diff = self.target_up.sub(&self.up);
+        self.up = self
+            .up
+            .add(&up_diff.scale(interpolation_factor))
+            .normalize();
     }
 
     #[must_use]

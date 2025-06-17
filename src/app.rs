@@ -245,37 +245,59 @@ impl ApplicationHandler for App {
                     let up = self.gravity_system.get_up_vector(position);
                     camera.set_up_vector(up);
 
+                    // Update camera to smoothly interpolate up vector
+                    camera.update(delta);
+
                     // Handle movement - constrained to sphere surface
                     let movement_speed = self.input_state.movement_speed() * delta;
                     let mut new_position = position;
+
+                    // Project movement vectors onto the tangent plane of the sphere
+                    let up_vector = self.gravity_system.get_up_vector(position);
 
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyW))
                     {
                         let forward = camera.forward();
-                        new_position = new_position.add(&forward.scale(movement_speed));
+                        // Project forward onto tangent plane
+                        let tangent_forward = forward
+                            .sub(&up_vector.scale(forward.dot(&up_vector)))
+                            .normalize();
+                        new_position = new_position.add(&tangent_forward.scale(movement_speed));
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyS))
                     {
                         let forward = camera.forward();
-                        new_position = new_position.add(&forward.scale(-movement_speed));
+                        // Project forward onto tangent plane
+                        let tangent_forward = forward
+                            .sub(&up_vector.scale(forward.dot(&up_vector)))
+                            .normalize();
+                        new_position = new_position.add(&tangent_forward.scale(-movement_speed));
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyA))
                     {
                         let right = camera.right();
-                        new_position = new_position.add(&right.scale(-movement_speed));
+                        // Project right onto tangent plane
+                        let tangent_right = right
+                            .sub(&up_vector.scale(right.dot(&up_vector)))
+                            .normalize();
+                        new_position = new_position.add(&tangent_right.scale(-movement_speed));
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyD))
                     {
                         let right = camera.right();
-                        new_position = new_position.add(&right.scale(movement_speed));
+                        // Project right onto tangent plane
+                        let tangent_right = right
+                            .sub(&up_vector.scale(right.dot(&up_vector)))
+                            .normalize();
+                        new_position = new_position.add(&tangent_right.scale(movement_speed));
                     }
 
                     // Keep camera at fixed height above surface

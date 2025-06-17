@@ -15,7 +15,7 @@ impl InputState {
             pressed_keys: HashSet::new(),
             mouse_delta: (0.0, 0.0),
             mouse_sensitivity: 0.003,
-            movement_speed: 5.0,
+            movement_speed: 2.0,
         }
     }
 
