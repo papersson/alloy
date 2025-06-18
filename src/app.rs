@@ -1,10 +1,10 @@
 use crate::{
-    core::{GrassSystem, GravitySystem, RoadSystem, Skybox, SphericalWorld, Timer},
+    core::{GrassSystem, GravitySystem, RoadSystem, Skybox, SphericalWorld, Timer, TreeSystem},
     input::InputState,
     log,
     math::Vec3,
     renderer::SceneRenderer,
-    scene::{Mesh, Node, Scene},
+    scene::{Node, Scene},
     ui::{FPSCounter, UIRenderer},
 };
 use std::cell::RefCell;
@@ -32,11 +32,12 @@ pub struct App {
     skybox: Skybox,
     grass_system: Option<GrassSystem>,
     road_system: Option<RoadSystem>,
+    tree_system: Option<TreeSystem>,
 }
 
 impl App {
     pub fn new() -> Self {
-        let planet_radius = 50.0;
+        let planet_radius = 25.0; // Reduced from 50.0 for a smaller planet
         Self {
             window: None,
             renderer: None,
@@ -51,6 +52,7 @@ impl App {
             skybox: Skybox::new(),
             grass_system: None,
             road_system: None,
+            tree_system: None,
         }
     }
 
@@ -64,22 +66,6 @@ impl App {
             world.generate_mesh(),
         )));
         scene.add_node(sphere_node);
-
-        // Add a few test cubes on the surface
-        let positions = [
-            Vec3::new(0.0, planet_radius + 0.5, 0.0), // Top
-            Vec3::new(planet_radius + 0.5, 0.0, 0.0), // Side
-            Vec3::new(0.0, 0.0, planet_radius + 0.5), // Front
-        ];
-
-        for (i, &position) in positions.iter().enumerate() {
-            let cube_node = Rc::new(RefCell::new(Node::with_mesh(
-                format!("Cube{i}"),
-                Mesh::cube(),
-            )));
-            cube_node.borrow_mut().transform.position = position;
-            scene.add_node(cube_node);
-        }
 
         // Set light above the planet
         scene.light.position = Vec3::new(10.0, planet_radius + 20.0, 10.0);
@@ -149,7 +135,7 @@ impl ApplicationHandler for App {
                                                 camera.set_position(Vec3::new(
                                                     0.0,
                                                     self.planet_radius + 2.0,
-                                                    5.0,
+                                                    2.5,
                                                 ));
                                                 let up = self
                                                     .gravity_system
@@ -169,7 +155,7 @@ impl ApplicationHandler for App {
                                             }
 
                                             // Initialize grass system
-                                            let grass_density = 0.5; // grass blades per square meter
+                                            let grass_density = 1.0; // Increased density for smaller planet
                                             self.grass_system = Some(GrassSystem::new(
                                                 self.planet_radius,
                                                 grass_density,
@@ -201,6 +187,24 @@ impl ApplicationHandler for App {
                                                     renderer.initialize_road(road_system)
                                                 {
                                                     log!("Failed to initialize road: {}", e);
+                                                }
+                                            }
+
+                                            // Initialize tree system
+                                            self.tree_system = Some(TreeSystem::new(
+                                                self.planet_radius,
+                                                50,  // Increased from 20 to 50 trees
+                                                0.0, // road start angle
+                                                std::f32::consts::PI / 2.0, // road end angle
+                                            ));
+
+                                            if let (Some(renderer), Some(tree_system)) =
+                                                (&mut self.renderer, &self.tree_system)
+                                            {
+                                                if let Err(e) =
+                                                    renderer.initialize_tree(tree_system)
+                                                {
+                                                    log!("Failed to initialize tree: {}", e);
                                                 }
                                             }
                                         }

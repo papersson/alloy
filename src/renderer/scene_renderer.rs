@@ -1,5 +1,5 @@
 use crate::core::{GrassSystem, Texture};
-use crate::math::{Mat4, Vec3};
+use crate::math::{Mat4, Vec3, Vec4};
 use crate::scene::{Camera, Mesh, Scene, Vertex};
 use crate::ui::{UIRenderer, UIVertex};
 use objc2::msg_send;
@@ -76,6 +76,7 @@ pub struct SceneRenderer {
     skybox_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     grass_pipeline_state: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
     road_pipeline_state: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
+    tree_pipeline_state: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
     depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     ui_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     skybox_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
@@ -88,6 +89,7 @@ pub struct SceneRenderer {
     skybox_buffers: Option<MeshBuffers>,
     grass_buffers: Option<GrassBuffers>,
     road_buffers: Option<MeshBuffers>,
+    tree_buffers: Option<GrassBuffers>,
     time: f32,
 }
 
@@ -129,6 +131,7 @@ impl SceneRenderer {
             skybox_pipeline_state,
             grass_pipeline_state: None,
             road_pipeline_state: None,
+            tree_pipeline_state: None,
             depth_stencil_state,
             ui_depth_stencil_state,
             skybox_depth_stencil_state,
@@ -141,6 +144,7 @@ impl SceneRenderer {
             skybox_buffers: None,
             grass_buffers: None,
             road_buffers: None,
+            tree_buffers: None,
             time: 0.0,
         })
     }
@@ -610,6 +614,71 @@ impl SceneRenderer {
         Ok(pipeline_state)
     }
 
+    fn create_tree_pipeline_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, String> {
+        let shader_source = include_str!("../shaders/tree.metal");
+        let shader_source = NSString::from_str(shader_source);
+
+        let compile_options = MTLCompileOptions::new();
+        let library = device
+            .newLibraryWithSource_options_error(&shader_source, Some(&compile_options))
+            .map_err(|e| format!("Failed to compile tree shaders: {:?}", e))?;
+
+        let vertex_function = library
+            .newFunctionWithName(&NSString::from_str("tree_vertex"))
+            .ok_or_else(|| "Failed to find tree vertex shader".to_string())?;
+
+        let fragment_function = library
+            .newFunctionWithName(&NSString::from_str("tree_fragment"))
+            .ok_or_else(|| "Failed to find tree fragment shader".to_string())?;
+
+        let vertex_descriptor = unsafe { MTLVertexDescriptor::new() };
+
+        unsafe {
+            // Per-vertex attributes
+            let position_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(0);
+            position_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            position_attr.setOffset(0);
+            position_attr.setBufferIndex(0);
+
+            let tex_coord_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(1);
+            tex_coord_attr.setFormat(objc2_metal::MTLVertexFormat::Float2);
+            tex_coord_attr.setOffset(std::mem::offset_of!(Vertex, tex_coord));
+            tex_coord_attr.setBufferIndex(0);
+
+            let normal_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(2);
+            normal_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            normal_attr.setOffset(std::mem::offset_of!(Vertex, normal));
+            normal_attr.setBufferIndex(0);
+
+            let layout = vertex_descriptor.layouts().objectAtIndexedSubscript(0);
+            layout.setStride(std::mem::size_of::<Vertex>());
+            layout.setStepFunction(objc2_metal::MTLVertexStepFunction::PerVertex);
+            layout.setStepRate(1);
+        }
+
+        let pipeline_descriptor = MTLRenderPipelineDescriptor::new();
+        pipeline_descriptor.setVertexFunction(Some(&vertex_function));
+        pipeline_descriptor.setFragmentFunction(Some(&fragment_function));
+        pipeline_descriptor.setVertexDescriptor(Some(&vertex_descriptor));
+
+        unsafe {
+            let color_attachment = pipeline_descriptor
+                .colorAttachments()
+                .objectAtIndexedSubscript(0);
+            color_attachment.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+        }
+
+        pipeline_descriptor.setDepthAttachmentPixelFormat(MTLPixelFormat::Depth32Float);
+
+        let pipeline_state = device
+            .newRenderPipelineStateWithDescriptor_error(&pipeline_descriptor)
+            .map_err(|e| format!("Failed to create tree pipeline state: {:?}", e))?;
+
+        Ok(pipeline_state)
+    }
+
     fn create_ui_depth_stencil_state(
         device: &ProtocolObject<dyn MTLDevice>,
     ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
@@ -977,6 +1046,101 @@ impl SceneRenderer {
                 render_encoder.setRenderPipelineState(&self.pipeline_state);
             }
 
+            // Render trees if available
+            if let (Some(tree_buffers), Some(tree_pipeline)) =
+                (&self.tree_buffers, &self.tree_pipeline_state)
+            {
+                render_encoder.setRenderPipelineState(tree_pipeline);
+
+                // Update tree uniforms (using the new shader uniforms structure)
+                #[repr(C)]
+                struct TreeUniforms {
+                    view_matrix: Mat4,
+                    projection_matrix: Mat4,
+                    light_position: Vec3,
+                    time: f32,
+                    view_position: Vec3,
+                    _padding: f32,
+                    sky_gradient_bottom: Vec4,
+                    sky_gradient_top: Vec4,
+                    sun_direction: Vec3,
+                    fog_density: f32,
+                    fog_start: f32,
+                    _padding2: [f32; 3],
+                }
+
+                let tree_uniforms = TreeUniforms {
+                    view_matrix: self.camera.view_matrix(),
+                    projection_matrix: self.camera.projection_matrix(),
+                    light_position: scene.light.position,
+                    time: self.time,
+                    view_position: self.camera.position(),
+                    _padding: 0.0,
+                    sky_gradient_bottom: Vec4::new(
+                        horizon_color.x,
+                        horizon_color.y,
+                        horizon_color.z,
+                        1.0,
+                    ),
+                    sky_gradient_top: Vec4::new(
+                        zenith_color.x,
+                        zenith_color.y,
+                        zenith_color.z,
+                        1.0,
+                    ),
+                    sun_direction: Vec3::new(0.5, 0.8, 0.3).normalize(),
+                    fog_density: 0.02,
+                    fog_start: 10.0,
+                    _padding2: [0.0, 0.0, 0.0],
+                };
+
+                unsafe {
+                    let contents = tree_buffers.uniform_buffer.contents();
+                    std::ptr::copy_nonoverlapping(
+                        &raw const tree_uniforms,
+                        contents.as_ptr().cast::<TreeUniforms>(),
+                        1,
+                    );
+                }
+
+                unsafe {
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&tree_buffers.vertex_buffer),
+                        0,
+                        0,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&tree_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&tree_buffers.instance_buffer),
+                        0,
+                        2,
+                    );
+                    render_encoder.setFragmentBuffer_offset_atIndex(
+                        Some(&tree_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+
+                    // Draw instanced trees
+                    let _: () = msg_send![
+                        &*render_encoder,
+                        drawIndexedPrimitives: MTLPrimitiveType::Triangle,
+                        indexCount: tree_buffers.index_count,
+                        indexType: MTLIndexType::UInt16,
+                        indexBuffer: &*tree_buffers.index_buffer,
+                        indexBufferOffset: 0_usize,
+                        instanceCount: tree_buffers.instance_count,
+                    ];
+                }
+
+                // Switch back to regular pipeline
+                render_encoder.setRenderPipelineState(&self.pipeline_state);
+            }
+
             // Render all nodes in the scene
             scene.traverse(|node, world_transform| {
                 if let Some(mesh) = &node.mesh {
@@ -1217,6 +1381,56 @@ impl SceneRenderer {
             index_buffer,
             uniform_buffer,
             index_count: mesh.indices.len(),
+        });
+
+        Ok(())
+    }
+
+    pub fn initialize_tree(&mut self, tree_system: &crate::core::TreeSystem) -> Result<(), String> {
+        // Create tree pipeline if not already created
+        if self.tree_pipeline_state.is_none() {
+            self.tree_pipeline_state = Some(Self::create_tree_pipeline_state(&self.device)?);
+        }
+
+        let instanced_mesh = tree_system.instanced_mesh();
+
+        // Create buffers
+        let vertex_buffer = Self::create_vertex_buffer(&self.device, &instanced_mesh.base_mesh)?;
+        let index_buffer = Self::create_index_buffer(&self.device, &instanced_mesh.base_mesh)?;
+
+        // Create instance buffer
+        let instance_data = instanced_mesh.instances.as_slice();
+        let instance_buffer_size = std::mem::size_of_val(instance_data);
+
+        let instance_data_ptr =
+            std::ptr::NonNull::new(instance_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
+                .ok_or_else(|| "Failed to create NonNull pointer for instance data".to_string())?;
+
+        let instance_buffer = unsafe {
+            self.device.newBufferWithBytes_length_options(
+                instance_data_ptr,
+                instance_buffer_size,
+                MTLResourceOptions::empty(),
+            )
+        }
+        .ok_or_else(|| "Failed to create instance buffer".to_string())?;
+
+        // Create uniform buffer for tree
+        let uniform_buffer = self
+            .device
+            .newBufferWithLength_options(
+                std::mem::size_of::<Uniforms>(),
+                MTLResourceOptions::empty(),
+            )
+            .ok_or_else(|| "Failed to create tree uniform buffer".to_string())?;
+
+        self.tree_buffers = Some(GrassBuffers {
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+            uniform_buffer,
+            index_count: instanced_mesh.base_mesh.indices.len(),
+            instance_count: instanced_mesh.instances.len(),
         });
 
         Ok(())

@@ -61,13 +61,12 @@ fragment float4 road_fragment(
     texture2d<float> road_texture [[texture(0)]],
     sampler texture_sampler [[sampler(0)]]
 ) {
-    // Sample road texture
-    float4 texture_color = road_texture.sample(texture_sampler, in.tex_coord);
+    // Use a natural dirt/gravel color for the road
+    float4 texture_color = float4(0.5, 0.35, 0.2, 1.0); // Brown dirt color
     
-    // If no texture bound, use a default dirt color
-    if (texture_color.a == 0.0) {
-        texture_color = float4(0.5, 0.35, 0.2, 1.0); // Brown dirt color
-    }
+    // Add some variation based on position
+    float variation = sin(in.tex_coord.x * 20.0) * 0.05 + sin(in.tex_coord.y * 15.0) * 0.05;
+    texture_color.rgb += variation;
     
     // Calculate lighting
     float3 normal = normalize(in.normal);

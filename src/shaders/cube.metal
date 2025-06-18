@@ -53,8 +53,8 @@ fragment float4 cube_fragment(
     sampler tex_sampler [[sampler(0)]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
-    // Sample texture
-    float4 object_color = tex.sample(tex_sampler, in.tex_coord);
+    // Use a natural earth-tone color for the planet surface
+    float4 object_color = float4(0.4, 0.55, 0.3, 1.0); // Muted green color
     
     // Ambient lighting
     float3 ambient = uniforms.ambient_strength * uniforms.light_color;

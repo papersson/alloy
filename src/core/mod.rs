@@ -11,6 +11,7 @@ mod road;
 mod skybox;
 mod spherical_world;
 mod texture;
+mod tree;
 
 pub use grass::GrassSystem;
 pub use gravity::GravitySystem;
@@ -18,6 +19,7 @@ pub use road::RoadSystem;
 pub use skybox::Skybox;
 pub use spherical_world::SphericalWorld;
 pub use texture::{Texture, TextureFormat};
+pub use tree::TreeSystem;
 
 use std::time::Instant;
 

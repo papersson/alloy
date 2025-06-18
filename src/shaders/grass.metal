@@ -55,21 +55,28 @@ vertex VertexOut grass_vertex(
     
     // Apply wind animation to the vertex position
     float3 local_pos = in.position;
-    if (in.tex_coord.y < 0.5) { // Only animate the top part of the grass
-        float wind_strength = 0.05;
-        float wind_speed = 2.0;
+    if (in.tex_coord.y < 0.8) { // Animate most of the grass blade
+        float wind_strength = 0.1;  // Increased from 0.05
+        float wind_speed = 1.5;     // Slightly slower
         
         // Use instance transform position for wind offset
         float3 world_pos = (instance.transform * float4(0, 0, 0, 1)).xyz;
         float wind_offset = world_pos.x * 0.1 + world_pos.z * 0.1;
         
-        // Calculate wind displacement
+        // Calculate multi-frequency wind displacement for more natural movement
         float wind_time = uniforms.time * wind_speed + wind_offset;
+        float wind_time2 = uniforms.time * wind_speed * 0.37 + wind_offset * 1.3;
+        
+        // Primary wind wave
         float wind_x = sin(wind_time) * wind_strength;
         float wind_z = cos(wind_time * 0.7) * wind_strength * 0.5;
         
+        // Secondary wind wave (gusty effect)
+        wind_x += sin(wind_time2 * 2.3) * wind_strength * 0.3;
+        wind_z += cos(wind_time2 * 1.9) * wind_strength * 0.2;
+        
         // Apply wind based on height (more at the top)
-        float height_factor = 1.0 - in.tex_coord.y;
+        float height_factor = pow(1.0 - in.tex_coord.y, 2.0);
         local_pos.x += wind_x * height_factor;
         local_pos.z += wind_z * height_factor;
     }
@@ -94,15 +101,19 @@ fragment float4 grass_fragment(
     VertexOut in [[stage_in]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
-    // Base grass color
-    float3 base_color = float3(0.2, 0.5, 0.1); // Dark green
+    // Base grass color with more natural tones
+    float3 base_color = float3(0.3, 0.6, 0.2); // Brighter, more natural green
     
     // Apply color variation
     float3 grass_color = base_color + in.color_variation;
     
-    // Add slight gradient from bottom to top
-    float gradient = mix(0.7, 1.0, in.tex_coord.y);
+    // Add gradient from bottom to top (darker at base)
+    float gradient = mix(0.5, 1.0, pow(in.tex_coord.y, 0.5));
     grass_color *= gradient;
+    
+    // Add subtle subsurface scattering effect
+    float subsurface = max(0.0, dot(-in.normal, normalize(uniforms.light_pos - in.world_pos)));
+    grass_color += float3(0.05, 0.1, 0.02) * subsurface * 0.3;
     
     // Simple ambient + diffuse lighting
     float3 ambient = uniforms.ambient_strength * uniforms.light_color;
