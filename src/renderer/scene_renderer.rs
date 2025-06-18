@@ -1,5 +1,6 @@
 use crate::core::{GrassSystem, Texture};
 use crate::math::{Mat4, Vec3, Vec4};
+use crate::renderer::GpuCullingSystem;
 use crate::scene::{Camera, Mesh, Scene, Vertex};
 use crate::ui::{UIRenderer, UIVertex};
 use objc2::msg_send;
@@ -95,6 +96,7 @@ pub struct SceneRenderer {
     grass_buffers: Option<GrassLodBuffers>,
     road_buffers: Option<MeshBuffers>,
     tree_buffers: Option<GrassBuffers>,
+    gpu_culling_system: Option<GpuCullingSystem>,
     time: f32,
 }
 
@@ -150,6 +152,7 @@ impl SceneRenderer {
             grass_buffers: None,
             road_buffers: None,
             tree_buffers: None,
+            gpu_culling_system: None,
             time: 0.0,
         })
     }
@@ -909,10 +912,18 @@ impl SceneRenderer {
             render_encoder.setRenderPipelineState(&self.pipeline_state);
             render_encoder.setDepthStencilState(Some(&self.depth_stencil_state));
 
-            // Render grass if available
-            if let (Some(grass_lod_buffers), Some(grass_pipeline)) =
-                (&self.grass_buffers, &self.grass_pipeline_state)
-            {
+            // Render grass if available with GPU culling
+            if let (Some(grass_lod_buffers), Some(grass_pipeline), Some(culling_system)) = (
+                &self.grass_buffers,
+                &self.grass_pipeline_state,
+                &self.gpu_culling_system,
+            ) {
+                // Update culling uniforms
+                culling_system.update_culling_uniforms(
+                    &self.camera.view_projection_matrix(),
+                    &self.camera.position(),
+                    60.0, // Max culling distance
+                );
                 render_encoder.setRenderPipelineState(grass_pipeline);
 
                 // Update grass uniforms (shared across all LODs)
@@ -1446,6 +1457,11 @@ impl SceneRenderer {
             lod_buffers,
             uniform_buffer,
         });
+
+        // Create GPU culling system
+        // Calculate total max instances (sum of all LOD instances)
+        let total_instances = grass_system.instanced_mesh().instances.len();
+        self.gpu_culling_system = Some(GpuCullingSystem::new(&self.device, total_instances)?);
 
         Ok(())
     }

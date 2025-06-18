@@ -89,8 +89,16 @@ vertex VertexOut grass_vertex(
     // Transform to clip space
     out.position = uniforms.mvp_matrix * world_pos;
     
-    // Transform normal
-    out.normal = normalize((instance.transform * float4(in.normal, 0.0)).xyz);
+    // Transform normal - for grass, we want two-sided lighting
+    float3 transformed_normal = normalize((instance.transform * float4(in.normal, 0.0)).xyz);
+    
+    // Ensure normal faces towards camera for two-sided lighting
+    float3 view_vec = uniforms.view_pos - world_pos.xyz;
+    if (dot(transformed_normal, view_vec) < 0.0) {
+        transformed_normal = -transformed_normal;
+    }
+    
+    out.normal = transformed_normal;
     
     out.tex_coord = in.tex_coord;
     out.color_variation = instance.color_variation;
@@ -109,23 +117,52 @@ fragment float4 grass_fragment(
     // Apply color variation
     float3 grass_color = base_color + in.color_variation;
     
-    // Add gradient from bottom to top (darker at base)
+    // Add gradient from bottom to top (darker at base, lighter at tips)
     float gradient = mix(0.5, 1.0, pow(in.tex_coord.y, 0.5));
     grass_color *= gradient;
     
-    // Add subtle subsurface scattering effect
-    float subsurface = max(0.0, dot(-in.normal, normalize(uniforms.light_pos - in.world_pos)));
-    grass_color += float3(0.05, 0.1, 0.02) * subsurface * 0.3;
-    
-    // Simple ambient + diffuse lighting
-    float3 ambient = uniforms.ambient_strength * uniforms.light_color;
-    
+    // Calculate light vectors
     float3 light_dir = normalize(uniforms.light_pos - in.world_pos);
-    float diff = max(dot(in.normal, light_dir), 0.0);
-    float3 diffuse = uniforms.diffuse_strength * diff * uniforms.light_color;
+    float3 view_dir = normalize(uniforms.view_pos - in.world_pos);
+    float3 half_dir = normalize(light_dir + view_dir);
     
-    // Combine lighting
-    float3 result = (ambient + diffuse) * grass_color;
+    // Enhanced subsurface scattering for realistic light transmission
+    // Calculate back-face illumination
+    float3 light_to_point = normalize(in.world_pos - uniforms.light_pos);
+    float back_light = max(0.0, dot(view_dir, -light_to_point));
+    float subsurface_wrap = max(0.0, dot(in.normal, light_dir) + 0.5) * 0.7;
+    
+    // Translucency effect - light passing through the grass blade
+    float translucency = pow(back_light, 3.0) * 0.8;
+    float thickness = 1.0 - in.tex_coord.y; // Thicker at base, thinner at tips
+    translucency *= (1.0 - thickness * 0.5);
+    
+    // Calculate subsurface color with warmer tones
+    float3 subsurface_color = float3(0.4, 0.7, 0.2) * uniforms.light_color;
+    float3 subsurface_contribution = subsurface_color * (subsurface_wrap + translucency * 0.6);
+    
+    // Standard diffuse lighting with wrap-around for softer shadows
+    float NdotL = dot(in.normal, light_dir);
+    float wrapped_diffuse = max(0.0, (NdotL + 0.3) / 1.3);
+    float3 diffuse = uniforms.diffuse_strength * wrapped_diffuse * uniforms.light_color;
+    
+    // Soft specular for wet grass effect
+    float NdotH = max(0.0, dot(in.normal, half_dir));
+    float specular = pow(NdotH, 32.0) * 0.2;
+    specular *= (1.0 - in.tex_coord.y); // Less specular at tips
+    
+    // Enhanced ambient with color bleeding from ground
+    float3 ambient = uniforms.ambient_strength * uniforms.light_color;
+    ambient += float3(0.05, 0.08, 0.02) * (1.0 - in.tex_coord.y); // Ground color influence
+    
+    // Combine all lighting components
+    float3 lighting = ambient + diffuse + subsurface_contribution;
+    float3 result = grass_color * lighting + specular * uniforms.light_color;
+    
+    // Rim lighting for added depth
+    float rim = 1.0 - max(0.0, dot(view_dir, in.normal));
+    rim = pow(rim, 2.0) * 0.15;
+    result += rim * uniforms.light_color * grass_color;
     
     // Apply fog
     float distance = length(uniforms.view_pos - in.world_pos);

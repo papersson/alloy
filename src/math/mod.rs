@@ -141,6 +141,16 @@ impl Vec4 {
     pub fn dot(&self, other: &Self) -> f32 {
         self.x * other.x + self.y * other.y + self.z * other.z + self.w * other.w
     }
+
+    #[must_use]
+    pub fn normalize_plane(&self) -> Self {
+        let len = (self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
+        if len > 0.0 {
+            Self::new(self.x / len, self.y / len, self.z / len, self.w / len)
+        } else {
+            *self
+        }
+    }
 }
 
 impl Default for Vec4 {
