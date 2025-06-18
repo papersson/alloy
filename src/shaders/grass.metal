@@ -57,55 +57,90 @@ vertex VertexOut grass_vertex(
     // Get instance data
     constant InstanceData& instance = instances[instance_id];
     
-    // Apply wind animation to the vertex position
+    // Check if this is a billboard (LOD2 or LOD3)
+    bool is_billboard = (instance.lod_level >= 2);
+    
     float3 local_pos = in.position;
-    if (in.tex_coord.y < 0.8) { // Animate most of the grass blade
-        float wind_strength = 0.1;  // Increased from 0.05
-        float wind_speed = 1.5;     // Slightly slower
+    
+    if (is_billboard) {
+        // Billboard orientation - make it face the camera while staying upright
+        float3 instance_pos = (instance.transform * float4(0, 0, 0, 1)).xyz;
+        float3 to_camera = uniforms.view_pos - instance_pos;
+        to_camera.y = 0.0; // Keep billboard upright
+        to_camera = normalize(to_camera);
         
-        // Use instance transform position for wind offset
-        float3 world_pos = (instance.transform * float4(0, 0, 0, 1)).xyz;
-        float wind_offset = world_pos.x * 0.1 + world_pos.z * 0.1;
+        // Calculate right vector for billboard
+        float3 up = float3(0, 1, 0);
+        float3 right = normalize(cross(up, to_camera));
         
-        // Calculate multi-frequency wind displacement for more natural movement
-        float wind_time = uniforms.time * wind_speed + wind_offset;
-        float wind_time2 = uniforms.time * wind_speed * 0.37 + wind_offset * 1.3;
+        // Transform billboard vertices
+        float3 billboard_pos = instance_pos;
+        billboard_pos += right * local_pos.x;
+        billboard_pos += up * local_pos.y;
         
-        // Primary wind wave
-        float wind_x = sin(wind_time) * wind_strength;
-        float wind_z = cos(wind_time * 0.7) * wind_strength * 0.5;
+        out.world_pos = billboard_pos;
+        out.position = uniforms.mvp_matrix * float4(billboard_pos, 1.0);
         
-        // Secondary wind wave (gusty effect)
-        wind_x += sin(wind_time2 * 2.3) * wind_strength * 0.3;
-        wind_z += cos(wind_time2 * 1.9) * wind_strength * 0.2;
+        // Billboard normal always faces camera
+        out.normal = to_camera;
+    } else {
+        // Non-billboard grass blade with wind animation
+        if (in.tex_coord.y < 0.8) { // Animate most of the grass blade
+            float wind_strength = 0.1;
+            float wind_speed = 1.5;
+            
+            // Use instance transform position for wind offset
+            float3 world_pos = (instance.transform * float4(0, 0, 0, 1)).xyz;
+            float wind_offset = world_pos.x * 0.1 + world_pos.z * 0.1;
+            
+            // Calculate multi-frequency wind displacement for more natural movement
+            float wind_time = uniforms.time * wind_speed + wind_offset;
+            float wind_time2 = uniforms.time * wind_speed * 0.37 + wind_offset * 1.3;
+            
+            // Primary wind wave
+            float wind_x = sin(wind_time) * wind_strength;
+            float wind_z = cos(wind_time * 0.7) * wind_strength * 0.5;
+            
+            // Secondary wind wave (gusty effect)
+            wind_x += sin(wind_time2 * 2.3) * wind_strength * 0.3;
+            wind_z += cos(wind_time2 * 1.9) * wind_strength * 0.2;
+            
+            // Apply wind based on height (more at the top)
+            float height_factor = pow(1.0 - in.tex_coord.y, 2.0);
+            local_pos.x += wind_x * height_factor;
+            local_pos.z += wind_z * height_factor;
+        }
         
-        // Apply wind based on height (more at the top)
-        float height_factor = pow(1.0 - in.tex_coord.y, 2.0);
-        local_pos.x += wind_x * height_factor;
-        local_pos.z += wind_z * height_factor;
+        // Transform to world space
+        float4 world_pos = instance.transform * float4(local_pos, 1.0);
+        out.world_pos = world_pos.xyz;
+        
+        // Transform to clip space
+        out.position = uniforms.mvp_matrix * world_pos;
+        
+        // Transform normal - for grass, we want two-sided lighting
+        float3 transformed_normal = normalize((instance.transform * float4(in.normal, 0.0)).xyz);
+        
+        // Ensure normal faces towards camera for two-sided lighting
+        float3 view_vec = uniforms.view_pos - world_pos.xyz;
+        if (dot(transformed_normal, view_vec) < 0.0) {
+            transformed_normal = -transformed_normal;
+        }
+        
+        out.normal = transformed_normal;
     }
-    
-    // Transform to world space
-    float4 world_pos = instance.transform * float4(local_pos, 1.0);
-    out.world_pos = world_pos.xyz;
-    
-    // Transform to clip space
-    out.position = uniforms.mvp_matrix * world_pos;
-    
-    // Transform normal - for grass, we want two-sided lighting
-    float3 transformed_normal = normalize((instance.transform * float4(in.normal, 0.0)).xyz);
-    
-    // Ensure normal faces towards camera for two-sided lighting
-    float3 view_vec = uniforms.view_pos - world_pos.xyz;
-    if (dot(transformed_normal, view_vec) < 0.0) {
-        transformed_normal = -transformed_normal;
-    }
-    
-    out.normal = transformed_normal;
     
     out.tex_coord = in.tex_coord;
     out.color_variation = instance.color_variation;
-    out.fade_alpha = 1.0; // TODO: Calculate based on LOD level
+    
+    // Calculate fade alpha for LOD3
+    if (instance.lod_level == 3) {
+        float distance = length(uniforms.view_pos - out.world_pos);
+        out.fade_alpha = 1.0 - saturate((distance - 50.0) / 10.0);
+    } else {
+        out.fade_alpha = 1.0;
+    }
+    
     out.texture_index = instance.texture_index;
     
     return out;

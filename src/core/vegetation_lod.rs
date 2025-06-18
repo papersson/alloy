@@ -157,9 +157,9 @@ impl GrassLodMeshes {
     }
 
     fn generate_billboard_mesh() -> Mesh {
-        // Simple quad billboard
-        let width = 0.1;
-        let height = 0.6;
+        // Billboard quad that will face the camera
+        let width = 0.15;
+        let height = 0.3;
 
         let vertices = vec![
             Vertex {

@@ -132,7 +132,7 @@ impl ApplicationHandler for App {
                                             // Set initial camera position
                                             if let Some(renderer) = &mut self.renderer {
                                                 let initial_position =
-                                                    Vec3::new(0.0, self.planet_radius + 1.0, 0.0);
+                                                    Vec3::new(0.0, self.planet_radius + 15.0, 0.0);
                                                 let camera = renderer.camera_mut();
                                                 camera.set_position(initial_position);
                                                 camera.set_up_vector(initial_position.normalize());
@@ -357,7 +357,7 @@ impl ApplicationHandler for App {
                         let new_position = current_position.add(&movement);
 
                         // Constrain to sphere surface
-                        let height_above_surface = 1.0; // Eye height
+                        let height_above_surface = 15.0; // Eye height (increased for better view)
                         let constrained_position = new_position
                             .normalize()
                             .scale(self.planet_radius + height_above_surface);
