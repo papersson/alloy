@@ -1,5 +1,5 @@
 use crate::{
-    core::{GrassSystem, GravitySystem, Skybox, SphericalWorld, Timer},
+    core::{GrassSystem, GravitySystem, RoadSystem, Skybox, SphericalWorld, Timer},
     input::InputState,
     log,
     math::Vec3,
@@ -31,6 +31,7 @@ pub struct App {
     planet_radius: f32,
     skybox: Skybox,
     grass_system: Option<GrassSystem>,
+    road_system: Option<RoadSystem>,
 }
 
 impl App {
@@ -49,6 +50,7 @@ impl App {
             planet_radius,
             skybox: Skybox::new(),
             grass_system: None,
+            road_system: None,
         }
     }
 
@@ -180,6 +182,25 @@ impl ApplicationHandler for App {
                                                     renderer.initialize_grass(grass_system)
                                                 {
                                                     log!("Failed to initialize grass: {}", e);
+                                                }
+                                            }
+
+                                            // Initialize road system
+                                            // Create a road that follows the equator
+                                            self.road_system = Some(RoadSystem::new(
+                                                self.planet_radius,
+                                                0.0,                        // start at 0 radians
+                                                std::f32::consts::PI / 2.0, // end at 90 degrees
+                                                3.0,                        // 3 meter wide road
+                                            ));
+
+                                            if let (Some(renderer), Some(road_system)) =
+                                                (&mut self.renderer, &self.road_system)
+                                            {
+                                                if let Err(e) =
+                                                    renderer.initialize_road(road_system)
+                                                {
+                                                    log!("Failed to initialize road: {}", e);
                                                 }
                                             }
                                         }

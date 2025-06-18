@@ -75,6 +75,7 @@ pub struct SceneRenderer {
     ui_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     skybox_pipeline_state: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     grass_pipeline_state: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
+    road_pipeline_state: Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>>,
     depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     ui_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
     skybox_depth_stencil_state: Retained<ProtocolObject<dyn MTLDepthStencilState>>,
@@ -86,6 +87,7 @@ pub struct SceneRenderer {
     mesh_buffers: HashMap<*const Mesh, MeshBuffers>,
     skybox_buffers: Option<MeshBuffers>,
     grass_buffers: Option<GrassBuffers>,
+    road_buffers: Option<MeshBuffers>,
     time: f32,
 }
 
@@ -126,6 +128,7 @@ impl SceneRenderer {
             ui_pipeline_state,
             skybox_pipeline_state,
             grass_pipeline_state: None,
+            road_pipeline_state: None,
             depth_stencil_state,
             ui_depth_stencil_state,
             skybox_depth_stencil_state,
@@ -137,6 +140,7 @@ impl SceneRenderer {
             mesh_buffers: HashMap::new(),
             skybox_buffers: None,
             grass_buffers: None,
+            road_buffers: None,
             time: 0.0,
         })
     }
@@ -542,6 +546,70 @@ impl SceneRenderer {
         Ok(pipeline_state)
     }
 
+    fn create_road_pipeline_state(
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, String> {
+        let shader_source = include_str!("../shaders/road.metal");
+        let shader_source = NSString::from_str(shader_source);
+
+        let compile_options = MTLCompileOptions::new();
+        let library = device
+            .newLibraryWithSource_options_error(&shader_source, Some(&compile_options))
+            .map_err(|e| format!("Failed to compile road shaders: {:?}", e))?;
+
+        let vertex_function = library
+            .newFunctionWithName(&NSString::from_str("road_vertex"))
+            .ok_or_else(|| "Failed to find road vertex shader".to_string())?;
+
+        let fragment_function = library
+            .newFunctionWithName(&NSString::from_str("road_fragment"))
+            .ok_or_else(|| "Failed to find road fragment shader".to_string())?;
+
+        let vertex_descriptor = unsafe { MTLVertexDescriptor::new() };
+
+        unsafe {
+            let position_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(0);
+            position_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            position_attr.setOffset(0);
+            position_attr.setBufferIndex(0);
+
+            let tex_coord_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(1);
+            tex_coord_attr.setFormat(objc2_metal::MTLVertexFormat::Float2);
+            tex_coord_attr.setOffset(std::mem::offset_of!(Vertex, tex_coord));
+            tex_coord_attr.setBufferIndex(0);
+
+            let normal_attr = vertex_descriptor.attributes().objectAtIndexedSubscript(2);
+            normal_attr.setFormat(objc2_metal::MTLVertexFormat::Float3);
+            normal_attr.setOffset(std::mem::offset_of!(Vertex, normal));
+            normal_attr.setBufferIndex(0);
+
+            let layout = vertex_descriptor.layouts().objectAtIndexedSubscript(0);
+            layout.setStride(std::mem::size_of::<Vertex>());
+            layout.setStepFunction(objc2_metal::MTLVertexStepFunction::PerVertex);
+            layout.setStepRate(1);
+        }
+
+        let pipeline_descriptor = MTLRenderPipelineDescriptor::new();
+        pipeline_descriptor.setVertexFunction(Some(&vertex_function));
+        pipeline_descriptor.setFragmentFunction(Some(&fragment_function));
+        pipeline_descriptor.setVertexDescriptor(Some(&vertex_descriptor));
+
+        unsafe {
+            let color_attachment = pipeline_descriptor
+                .colorAttachments()
+                .objectAtIndexedSubscript(0);
+            color_attachment.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+        }
+
+        pipeline_descriptor.setDepthAttachmentPixelFormat(MTLPixelFormat::Depth32Float);
+
+        let pipeline_state = device
+            .newRenderPipelineStateWithDescriptor_error(&pipeline_descriptor)
+            .map_err(|e| format!("Failed to create road pipeline state: {:?}", e))?;
+
+        Ok(pipeline_state)
+    }
+
     fn create_ui_depth_stencil_state(
         device: &ProtocolObject<dyn MTLDevice>,
     ) -> Result<Retained<ProtocolObject<dyn MTLDepthStencilState>>, String> {
@@ -836,6 +904,79 @@ impl SceneRenderer {
                 render_encoder.setRenderPipelineState(&self.pipeline_state);
             }
 
+            // Render road if available
+            if let (Some(road_buffers), Some(road_pipeline)) =
+                (&self.road_buffers, &self.road_pipeline_state)
+            {
+                render_encoder.setRenderPipelineState(road_pipeline);
+
+                // Update road uniforms
+                let road_uniforms = Uniforms {
+                    mvp_matrix: self.camera.view_projection_matrix(),
+                    model_matrix: Mat4::identity(),
+                    normal_matrix: Mat4::identity(),
+                    view_pos: self.camera.position(),
+                    time: self.time,
+                    light_pos: scene.light.position,
+                    _padding1: 0.0,
+                    light_color: scene.light.color,
+                    ambient_strength: scene.light.ambient,
+                    diffuse_strength: scene.light.diffuse,
+                    specular_strength: scene.light.specular,
+                    fog_density: 0.02,
+                    fog_color: Vec3::new(0.7, 0.8, 0.9),
+                    fog_start: 10.0,
+                    horizon_color,
+                    _padding2: 0.0,
+                    zenith_color,
+                    _padding3: 0.0,
+                };
+
+                unsafe {
+                    let contents = road_buffers.uniform_buffer.contents();
+                    std::ptr::copy_nonoverlapping(
+                        &raw const road_uniforms,
+                        contents.as_ptr().cast::<Uniforms>(),
+                        1,
+                    );
+                }
+
+                unsafe {
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&road_buffers.vertex_buffer),
+                        0,
+                        0,
+                    );
+                    render_encoder.setVertexBuffer_offset_atIndex(
+                        Some(&road_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+                    render_encoder.setFragmentBuffer_offset_atIndex(
+                        Some(&road_buffers.uniform_buffer),
+                        0,
+                        1,
+                    );
+
+                    // Set default texture for road (will be replaced with actual texture later)
+                    render_encoder
+                        .setFragmentTexture_atIndex(Some(&self.default_texture.texture), 0);
+                    render_encoder.setFragmentSamplerState_atIndex(Some(&self.sampler_state), 0);
+
+                    render_encoder
+                        .drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(
+                            MTLPrimitiveType::Triangle,
+                            road_buffers.index_count,
+                            MTLIndexType::UInt16,
+                            &road_buffers.index_buffer,
+                            0,
+                        );
+                }
+
+                // Switch back to regular pipeline
+                render_encoder.setRenderPipelineState(&self.pipeline_state);
+            }
+
             // Render all nodes in the scene
             scene.traverse(|node, world_transform| {
                 if let Some(mesh) = &node.mesh {
@@ -1053,6 +1194,29 @@ impl SceneRenderer {
             uniform_buffer,
             index_count: instanced_mesh.base_mesh.indices.len(),
             instance_count: instanced_mesh.instances.len(),
+        });
+
+        Ok(())
+    }
+
+    pub fn initialize_road(&mut self, road_system: &crate::core::RoadSystem) -> Result<(), String> {
+        // Create road pipeline if not already created
+        if self.road_pipeline_state.is_none() {
+            self.road_pipeline_state = Some(Self::create_road_pipeline_state(&self.device)?);
+        }
+
+        let mesh = road_system.mesh();
+
+        // Create buffers
+        let vertex_buffer = Self::create_vertex_buffer(&self.device, mesh)?;
+        let index_buffer = Self::create_index_buffer(&self.device, mesh)?;
+        let uniform_buffer = Self::create_uniform_buffer(&self.device)?;
+
+        self.road_buffers = Some(MeshBuffers {
+            vertex_buffer,
+            index_buffer,
+            uniform_buffer,
+            index_count: mesh.indices.len(),
         });
 
         Ok(())
