@@ -25,7 +25,9 @@ struct Uniforms {
 struct InstanceData {
     float4x4 transform;
     float3 color_variation;
-    float _padding;
+    uint lod_level;
+    uint texture_index;
+    uint _padding[3];
 };
 
 struct VertexIn {
@@ -41,6 +43,7 @@ struct VertexOut {
     float3 normal;
     float3 color_variation;
     float fade_alpha;
+    uint texture_index;
 };
 
 vertex VertexOut grass_vertex(
@@ -102,20 +105,28 @@ vertex VertexOut grass_vertex(
     
     out.tex_coord = in.tex_coord;
     out.color_variation = instance.color_variation;
-    out.fade_alpha = instance._padding; // Using padding field for fade alpha
+    out.fade_alpha = 1.0; // TODO: Calculate based on LOD level
+    out.texture_index = instance.texture_index;
     
     return out;
 }
 
 fragment float4 grass_fragment(
     VertexOut in [[stage_in]],
-    constant Uniforms& uniforms [[buffer(1)]]
+    constant Uniforms& uniforms [[buffer(1)]],
+    texture2d_array<float> grass_textures [[texture(0)]],
+    sampler texture_sampler [[sampler(0)]]
 ) {
-    // Base grass color with more natural tones
-    float3 base_color = float3(0.3, 0.6, 0.2); // Brighter, more natural green
+    // Sample grass texture from array
+    float4 tex_color = grass_textures.sample(texture_sampler, in.tex_coord, in.texture_index);
     
-    // Apply color variation
-    float3 grass_color = base_color + in.color_variation;
+    // Early discard for alpha testing
+    if (tex_color.a < 0.1) {
+        discard_fragment();
+    }
+    
+    // Blend texture color with instance color variation
+    float3 grass_color = tex_color.rgb * (float3(1.0) + in.color_variation * 0.3);
     
     // Add gradient from bottom to top (darker at base, lighter at tips)
     float gradient = mix(0.5, 1.0, pow(in.tex_coord.y, 0.5));

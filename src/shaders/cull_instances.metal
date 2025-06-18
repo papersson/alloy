@@ -12,6 +12,8 @@ struct InstanceInput {
     float4x4 transform;
     float3 color_variation;
     uint lod_level;
+    uint texture_index;
+    uint _padding[3];
 };
 
 struct DrawArguments {

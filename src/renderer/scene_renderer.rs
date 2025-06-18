@@ -1,4 +1,4 @@
-use crate::core::{GrassSystem, Texture};
+use crate::core::{GrassSystem, GrassTextureGenerator, Texture, TextureArray};
 use crate::math::{Mat4, Vec3, Vec4};
 use crate::renderer::GpuCullingSystem;
 use crate::scene::{Camera, Mesh, Scene, Vertex};
@@ -94,6 +94,7 @@ pub struct SceneRenderer {
     mesh_buffers: HashMap<*const Mesh, MeshBuffers>,
     skybox_buffers: Option<MeshBuffers>,
     grass_buffers: Option<GrassLodBuffers>,
+    grass_texture_array: Option<TextureArray>,
     road_buffers: Option<MeshBuffers>,
     tree_buffers: Option<GrassBuffers>,
     gpu_culling_system: Option<GpuCullingSystem>,
@@ -150,6 +151,7 @@ impl SceneRenderer {
             mesh_buffers: HashMap::new(),
             skybox_buffers: None,
             grass_buffers: None,
+            grass_texture_array: None,
             road_buffers: None,
             tree_buffers: None,
             gpu_culling_system: None,
@@ -983,6 +985,14 @@ impl SceneRenderer {
                                 1,
                             );
 
+                            // Bind grass texture array and sampler
+                            if let Some(ref texture_array) = self.grass_texture_array {
+                                render_encoder
+                                    .setFragmentTexture_atIndex(Some(&texture_array.texture), 0);
+                                render_encoder
+                                    .setFragmentSamplerState_atIndex(Some(&self.sampler_state), 0);
+                            }
+
                             // Use drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:instanceCount:
                             let _: () = msg_send![
                                 &*render_encoder,
@@ -1384,6 +1394,21 @@ impl SceneRenderer {
         // Create grass pipeline if not already created
         if self.grass_pipeline_state.is_none() {
             self.grass_pipeline_state = Some(Self::create_grass_pipeline_state(&self.device)?);
+        }
+
+        // Create grass texture array if not already created
+        if self.grass_texture_array.is_none() {
+            let generator = GrassTextureGenerator::new(256, 256, 8);
+            let texture_data = generator.generate_texture_array_data();
+
+            self.grass_texture_array = Some(TextureArray::create_from_data(
+                &self.device,
+                &texture_data,
+                256,
+                256,
+                8,
+                GrassTextureGenerator::format(),
+            )?);
         }
 
         // Create uniform buffer for grass (shared across all LODs)

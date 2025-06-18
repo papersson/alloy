@@ -205,6 +205,7 @@ pub struct VegetationInstance {
     pub color_variation: Vec3,
     pub lod_level: LodLevel,
     pub fade_alpha: f32,
+    pub texture_index: u32,
 }
 
 pub struct VegetationLodSystem {

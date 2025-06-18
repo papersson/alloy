@@ -235,7 +235,9 @@ impl TreeSystem {
             instances.push(InstanceData {
                 transform,
                 color_variation,
-                _padding: 0.0,
+                lod_level: 0,     // Trees don't use LOD yet
+                texture_index: 0, // Trees don't use texture arrays yet
+                _padding: [0; 3],
             });
         }
 

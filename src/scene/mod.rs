@@ -191,7 +191,9 @@ pub struct Vertex {
 pub struct InstanceData {
     pub transform: Mat4,
     pub color_variation: Vec3,
-    pub _padding: f32,
+    pub lod_level: u32,
+    pub texture_index: u32,
+    pub _padding: [u32; 3],
 }
 
 #[derive(Clone)]

@@ -24,6 +24,8 @@ pub struct InstanceInput {
     pub transform: Mat4,
     pub color_variation: Vec3,
     pub lod_level: u32,
+    pub texture_index: u32,
+    pub _padding: [u32; 3], // Ensure 16-byte alignment
 }
 
 #[repr(C)]

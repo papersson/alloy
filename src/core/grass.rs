@@ -112,11 +112,15 @@ impl GrassSystem {
                     -0.05 + (1.0 - color_var) * 0.05, // Inverse correlation with red
                 );
 
+                // Assign random texture index (0-7 for 8 texture variations)
+                let texture_index = rng.gen_range(0..8);
+
                 instances.push(VegetationInstance {
                     transform,
                     color_variation,
                     lod_level: LodLevel::Full, // Will be updated based on distance
                     fade_alpha: 1.0,
+                    texture_index,
                 });
             }
         }
@@ -152,7 +156,9 @@ impl GrassSystem {
             .map(|inst| InstanceData {
                 transform: inst.transform,
                 color_variation: inst.color_variation,
-                _padding: inst.fade_alpha, // Use padding field for fade alpha
+                lod_level: inst.lod_level as u32,
+                texture_index: inst.texture_index,
+                _padding: [0; 3],
             })
             .collect()
     }
@@ -174,7 +180,9 @@ impl GrassSystem {
             .map(|inst| InstanceData {
                 transform: inst.transform,
                 color_variation: inst.color_variation,
-                _padding: inst.fade_alpha,
+                lod_level: inst.lod_level as u32,
+                texture_index: inst.texture_index,
+                _padding: [0; 3],
             })
             .collect();
 

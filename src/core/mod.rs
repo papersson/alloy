@@ -6,6 +6,7 @@
 //! - Logging macros
 
 mod grass;
+mod grass_texture;
 mod gravity;
 mod road;
 mod skybox;
@@ -15,11 +16,12 @@ mod tree;
 mod vegetation_lod;
 
 pub use grass::GrassSystem;
+pub use grass_texture::GrassTextureGenerator;
 pub use gravity::GravitySystem;
 pub use road::RoadSystem;
 pub use skybox::Skybox;
 pub use spherical_world::SphericalWorld;
-pub use texture::{Texture, TextureFormat};
+pub use texture::{Texture, TextureArray, TextureFormat};
 pub use tree::TreeSystem;
 pub use vegetation_lod::{GrassLodMeshes, LodLevel, VegetationInstance, VegetationLodSystem};
 
