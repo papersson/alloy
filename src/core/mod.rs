@@ -5,20 +5,24 @@
 //! - Texture loading and management
 //! - Logging macros
 
+mod character_controller;
 mod grass;
 mod gravity;
 mod road;
 mod skybox;
 mod spherical_world;
 mod texture;
+mod third_person_camera;
 mod tree;
 
+pub use character_controller::CharacterController;
 pub use grass::GrassSystem;
 pub use gravity::GravitySystem;
 pub use road::RoadSystem;
 pub use skybox::Skybox;
 pub use spherical_world::SphericalWorld;
 pub use texture::{Texture, TextureFormat};
+pub use third_person_camera::{CameraSettings, SpringArm, ThirdPersonCamera};
 pub use tree::TreeSystem;
 
 use std::time::Instant;

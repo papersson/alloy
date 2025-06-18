@@ -415,6 +415,148 @@ impl Mesh {
 
         Self { vertices, indices }
     }
+
+    #[must_use]
+    pub fn capsule(radius: f32, height: f32, segments: u32) -> Self {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        // Create the cylinder body
+        let cylinder_height = height - 2.0 * radius;
+        let half_cylinder_height = cylinder_height / 2.0;
+
+        // Generate vertices for cylinder
+        for i in 0..=segments {
+            let angle = 2.0 * std::f32::consts::PI * (i as f32 / segments as f32);
+            let x = radius * angle.cos();
+            let z = radius * angle.sin();
+
+            // Bottom ring
+            vertices.push(Vertex {
+                position: Vec3::new(x, -half_cylinder_height, z),
+                tex_coord: Vec2::new(i as f32 / segments as f32, 1.0),
+                normal: Vec3::new(x / radius, 0.0, z / radius),
+            });
+
+            // Top ring
+            vertices.push(Vertex {
+                position: Vec3::new(x, half_cylinder_height, z),
+                tex_coord: Vec2::new(i as f32 / segments as f32, 0.0),
+                normal: Vec3::new(x / radius, 0.0, z / radius),
+            });
+        }
+
+        // Create cylinder indices
+        for i in 0..segments {
+            let bottom1 = i * 2;
+            let top1 = bottom1 + 1;
+            let bottom2 = ((i + 1) % segments) * 2;
+            let top2 = bottom2 + 1;
+
+            // Two triangles per quad
+            indices.push(bottom1 as u16);
+            indices.push(bottom2 as u16);
+            indices.push(top2 as u16);
+
+            indices.push(bottom1 as u16);
+            indices.push(top2 as u16);
+            indices.push(top1 as u16);
+        }
+
+        // Add hemisphere caps
+        let base_vertex_count = vertices.len() as u16;
+
+        // Top hemisphere
+        let rings = 8;
+        for ring in 0..=rings {
+            let phi = std::f32::consts::FRAC_PI_2 * (ring as f32 / rings as f32);
+            let ring_radius = radius * phi.cos();
+            let y = half_cylinder_height + radius * phi.sin();
+
+            for i in 0..=segments {
+                let theta = 2.0 * std::f32::consts::PI * (i as f32 / segments as f32);
+                let x = ring_radius * theta.cos();
+                let z = ring_radius * theta.sin();
+
+                let normal = Vec3::new(x, y - half_cylinder_height, z).normalize();
+
+                vertices.push(Vertex {
+                    position: Vec3::new(x, y, z),
+                    tex_coord: Vec2::new(i as f32 / segments as f32, ring as f32 / rings as f32),
+                    normal,
+                });
+            }
+        }
+
+        // Add top hemisphere indices
+        for ring in 0..rings {
+            for i in 0..segments {
+                let current_ring_start = base_vertex_count + (ring * (segments + 1)) as u16;
+                let next_ring_start = current_ring_start + (segments + 1) as u16;
+
+                let v1 = current_ring_start + i as u16;
+                let v2 = current_ring_start + (i + 1) as u16;
+                let v3 = next_ring_start + i as u16;
+                let v4 = next_ring_start + (i + 1) as u16;
+
+                indices.push(v1);
+                indices.push(v3);
+                indices.push(v4);
+
+                indices.push(v1);
+                indices.push(v4);
+                indices.push(v2);
+            }
+        }
+
+        // Bottom hemisphere (similar but inverted)
+        let bottom_base_vertex = vertices.len() as u16;
+        for ring in 0..=rings {
+            let phi = std::f32::consts::FRAC_PI_2 * (ring as f32 / rings as f32);
+            let ring_radius = radius * phi.cos();
+            let y = -half_cylinder_height - radius * phi.sin();
+
+            for i in 0..=segments {
+                let theta = 2.0 * std::f32::consts::PI * (i as f32 / segments as f32);
+                let x = ring_radius * theta.cos();
+                let z = ring_radius * theta.sin();
+
+                let normal = Vec3::new(x, y + half_cylinder_height, z).normalize();
+
+                vertices.push(Vertex {
+                    position: Vec3::new(x, y, z),
+                    tex_coord: Vec2::new(
+                        i as f32 / segments as f32,
+                        1.0 - ring as f32 / rings as f32,
+                    ),
+                    normal,
+                });
+            }
+        }
+
+        // Add bottom hemisphere indices
+        for ring in 0..rings {
+            for i in 0..segments {
+                let current_ring_start = bottom_base_vertex + (ring * (segments + 1)) as u16;
+                let next_ring_start = current_ring_start + (segments + 1) as u16;
+
+                let v1 = current_ring_start + i as u16;
+                let v2 = current_ring_start + (i + 1) as u16;
+                let v3 = next_ring_start + i as u16;
+                let v4 = next_ring_start + (i + 1) as u16;
+
+                indices.push(v1);
+                indices.push(v2);
+                indices.push(v4);
+
+                indices.push(v1);
+                indices.push(v4);
+                indices.push(v3);
+            }
+        }
+
+        Self { vertices, indices }
+    }
 }
 
 pub type NodeRef = Rc<RefCell<Node>>;

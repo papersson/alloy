@@ -1,10 +1,13 @@
 use crate::{
-    core::{GrassSystem, GravitySystem, RoadSystem, Skybox, SphericalWorld, Timer, TreeSystem},
+    core::{
+        CharacterController, GrassSystem, GravitySystem, RoadSystem, Skybox, SphericalWorld,
+        ThirdPersonCamera, Timer, TreeSystem,
+    },
     input::InputState,
     log,
     math::Vec3,
     renderer::SceneRenderer,
-    scene::{Node, Scene},
+    scene::{Mesh, Node, Scene},
     ui::{FPSCounter, UIRenderer},
 };
 use std::cell::RefCell;
@@ -33,6 +36,9 @@ pub struct App {
     grass_system: Option<GrassSystem>,
     road_system: Option<RoadSystem>,
     tree_system: Option<TreeSystem>,
+    third_person_camera: Option<ThirdPersonCamera>,
+    character_controller: Option<CharacterController>,
+    character_node: Option<Rc<RefCell<Node>>>,
 }
 
 impl App {
@@ -53,6 +59,9 @@ impl App {
             grass_system: None,
             road_system: None,
             tree_system: None,
+            third_person_camera: None,
+            character_controller: None,
+            character_node: None,
         }
     }
 
@@ -129,18 +138,36 @@ impl ApplicationHandler for App {
                                             self.renderer = Some(renderer);
                                             self.ui_renderer = Some(ui_renderer);
 
-                                            // Set initial camera position on the surface
-                                            if let Some(renderer) = &mut self.renderer {
-                                                let camera = renderer.camera_mut();
-                                                camera.set_position(Vec3::new(
-                                                    0.0,
-                                                    self.planet_radius + 2.0,
-                                                    2.5,
+                                            // Create character and third-person camera
+                                            let initial_position =
+                                                Vec3::new(0.0, self.planet_radius + 1.0, 0.0);
+                                            self.character_controller =
+                                                Some(CharacterController::new(initial_position));
+                                            self.third_person_camera =
+                                                Some(ThirdPersonCamera::new(
+                                                    initial_position,
+                                                    size.width as f32 / size.height as f32,
                                                 ));
-                                                let up = self
-                                                    .gravity_system
-                                                    .get_up_vector(camera.position());
-                                                camera.set_up_vector(up);
+
+                                            // Create character mesh (capsule)
+                                            let character_mesh = Mesh::capsule(0.5, 2.0, 16);
+                                            let character_node =
+                                                Rc::new(RefCell::new(Node::with_mesh(
+                                                    "Character".to_string(),
+                                                    character_mesh,
+                                                )));
+                                            self.scene.add_node(character_node.clone());
+                                            self.character_node = Some(character_node);
+
+                                            // Set initial camera position for renderer (still using first-person camera internally)
+                                            if let Some(renderer) = &mut self.renderer {
+                                                if let Some(camera) = &self.third_person_camera {
+                                                    let renderer_camera = renderer.camera_mut();
+                                                    renderer_camera
+                                                        .set_position(camera.camera_position);
+                                                    renderer_camera
+                                                        .set_up_vector(camera.character_up);
+                                                }
                                             }
 
                                             log!("Renderer initialized successfully");
@@ -250,6 +277,9 @@ impl ApplicationHandler for App {
                     if let Some(ui_renderer) = &self.ui_renderer {
                         ui_renderer.update_projection(size.width as f32, size.height as f32);
                     }
+                    if let Some(camera) = &mut self.third_person_camera {
+                        camera.set_aspect_ratio(size.width as f32 / size.height as f32);
+                    }
                     log!("Window resized to {}x{}", size.width, size.height);
                 }
             }
@@ -291,122 +321,113 @@ impl ApplicationHandler for App {
                 // Format FPS text before mutable borrows
                 let fps_text = self.format_fps();
 
-                // Update camera based on input
+                // Update renderer time for skybox animation
                 if let Some(renderer) = &mut self.renderer {
-                    // Update renderer time for skybox animation
                     renderer.update_time(delta);
+                }
 
-                    let camera = renderer.camera_mut();
-
-                    // Get current position and update up vector based on gravity
-                    let position = camera.position();
-                    let up = self.gravity_system.get_up_vector(position);
-                    camera.set_up_vector(up);
-
-                    // Update camera to smoothly interpolate up vector
-                    camera.update(delta);
-
-                    // Handle movement - constrained to sphere surface
-                    let base_speed = self.input_state.movement_speed();
-                    let speed_multiplier = if self
-                        .input_state
-                        .is_key_pressed(PhysicalKey::Code(KeyCode::ShiftLeft))
-                        || self
-                            .input_state
-                            .is_key_pressed(PhysicalKey::Code(KeyCode::ShiftRight))
-                    {
-                        2.0 // Run speed
-                    } else {
-                        1.0 // Walk speed
-                    };
-                    let movement_speed = base_speed * speed_multiplier * delta;
-                    let mut new_position = position;
-
-                    // Project movement vectors onto the tangent plane of the sphere
-                    let up_vector = self.gravity_system.get_up_vector(position);
+                // Update character controller and third-person camera
+                if let (Some(character_controller), Some(third_person_camera)) = (
+                    &mut self.character_controller,
+                    &mut self.third_person_camera,
+                ) {
+                    // Get input
+                    let mut input_forward = 0.0;
+                    let mut input_right = 0.0;
 
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyW))
                     {
-                        let forward = camera.forward();
-                        // Project forward onto tangent plane
-                        let tangent_forward = forward
-                            .sub(&up_vector.scale(forward.dot(&up_vector)))
-                            .normalize();
-                        new_position = new_position.add(&tangent_forward.scale(movement_speed));
+                        input_forward += 1.0;
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyS))
                     {
-                        let forward = camera.forward();
-                        // Project forward onto tangent plane
-                        let tangent_forward = forward
-                            .sub(&up_vector.scale(forward.dot(&up_vector)))
-                            .normalize();
-                        new_position = new_position.add(&tangent_forward.scale(-movement_speed));
+                        input_forward -= 1.0;
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyA))
                     {
-                        let right = camera.right();
-                        // Project right onto tangent plane
-                        let tangent_right = right
-                            .sub(&up_vector.scale(right.dot(&up_vector)))
-                            .normalize();
-                        new_position = new_position.add(&tangent_right.scale(-movement_speed));
+                        input_right -= 1.0;
                     }
                     if self
                         .input_state
                         .is_key_pressed(PhysicalKey::Code(KeyCode::KeyD))
                     {
-                        let right = camera.right();
-                        // Project right onto tangent plane
-                        let tangent_right = right
-                            .sub(&up_vector.scale(right.dot(&up_vector)))
-                            .normalize();
-                        new_position = new_position.add(&tangent_right.scale(movement_speed));
+                        input_right += 1.0;
                     }
 
-                    // Keep camera at fixed height above surface
-                    let from_center = new_position.sub(&self.gravity_system.planet_center);
-                    let distance_from_center = from_center.length();
-                    if distance_from_center > 0.0 {
-                        // Maintain constant distance from planet center (radius + height)
-                        let desired_distance = self.planet_radius + 2.0; // 2 units above surface
-                        new_position = from_center
-                            .normalize()
-                            .scale(desired_distance)
-                            .add(&self.gravity_system.planet_center);
+                    let is_running = self
+                        .input_state
+                        .is_key_pressed(PhysicalKey::Code(KeyCode::ShiftLeft))
+                        || self
+                            .input_state
+                            .is_key_pressed(PhysicalKey::Code(KeyCode::ShiftRight));
+
+                    // Update character movement
+                    character_controller.update(
+                        input_forward,
+                        input_right,
+                        is_running,
+                        delta,
+                        self.gravity_system.planet_center,
+                        self.planet_radius,
+                    );
+
+                    // Update character node transform
+                    if let Some(character_node) = &self.character_node {
+                        let (position, _forward, _up) =
+                            character_controller.get_transform_vectors();
+                        let mut node = character_node.borrow_mut();
+                        node.transform.position = position;
+                        // TODO: Set proper rotation based on forward and up vectors
                     }
 
-                    camera.set_position(new_position);
+                    // Update third-person camera
+                    let (position, forward, up) = character_controller.get_transform_vectors();
+                    third_person_camera.set_character_transform(position, forward, up);
 
-                    // Handle rotation
+                    // Handle camera rotation
                     let (dx, dy) = self.input_state.mouse_delta();
                     if dx.abs() > 0.0 || dy.abs() > 0.0 {
                         let sensitivity = self.input_state.mouse_sensitivity();
-                        camera.rotate(-dx * sensitivity, -dy * sensitivity);
+                        third_person_camera.rotate(-dx * sensitivity, -dy * sensitivity);
                         self.input_state.reset_mouse_delta();
                     }
 
-                    // Prepare UI rendering
-                    if let Some(ui_renderer) = &mut self.ui_renderer {
-                        ui_renderer.begin_frame();
+                    // Update camera
+                    third_person_camera.update(delta);
 
-                        // Draw FPS counter
-                        ui_renderer.draw_text(
-                            &fps_text,
-                            crate::math::Vec2::new(10.0, 10.0),
-                            [1.0, 1.0, 1.0, 1.0],
-                        );
+                    // Sync with renderer camera
+                    if let Some(renderer) = &mut self.renderer {
+                        let renderer_camera = renderer.camera_mut();
+                        renderer_camera.set_position(third_person_camera.camera_position);
+                        renderer_camera.set_up_vector(third_person_camera.character_up);
 
-                        ui_renderer.end_frame();
+                        // Let the renderer camera handle its own view calculations
+                        renderer_camera.update(delta);
                     }
+                }
 
-                    // Render scene and UI together
+                // Prepare UI rendering
+                if let Some(ui_renderer) = &mut self.ui_renderer {
+                    ui_renderer.begin_frame();
+
+                    // Draw FPS counter
+                    ui_renderer.draw_text(
+                        &fps_text,
+                        crate::math::Vec2::new(10.0, 10.0),
+                        [1.0, 1.0, 1.0, 1.0],
+                    );
+
+                    ui_renderer.end_frame();
+                }
+
+                // Render scene and UI together
+                if let Some(renderer) = &mut self.renderer {
                     if let Err(e) = renderer.render(&self.scene, self.ui_renderer.as_ref()) {
                         log!("Render error: {}", e);
                     }
