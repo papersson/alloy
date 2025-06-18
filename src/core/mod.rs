@@ -5,6 +5,7 @@
 //! - Texture loading and management
 //! - Logging macros
 
+mod density_map;
 mod grass;
 mod grass_texture;
 mod gravity;
@@ -15,6 +16,7 @@ mod texture;
 mod tree;
 mod vegetation_lod;
 
+pub use density_map::DensityMap;
 pub use grass::GrassSystem;
 pub use grass_texture::GrassTextureGenerator;
 pub use gravity::GravitySystem;

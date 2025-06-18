@@ -1,6 +1,6 @@
 //! Grass system for rendering instanced grass blades on the spherical world
 
-use crate::core::{LodLevel, VegetationInstance, VegetationLodSystem};
+use crate::core::{DensityMap, LodLevel, VegetationInstance, VegetationLodSystem};
 use crate::math::{Mat4, Vec3, Vec4};
 use crate::scene::{InstanceData, InstancedMesh, Mesh};
 use rand::{Rng, SeedableRng};
@@ -9,56 +9,59 @@ use rand_chacha::ChaCha8Rng;
 pub struct GrassSystem {
     lod_system: VegetationLodSystem,
     instances: Vec<VegetationInstance>,
+    #[allow(dead_code)]
     planet_radius: f32,
+    #[allow(dead_code)]
+    density_map: DensityMap,
 }
 
 impl GrassSystem {
     pub fn new(planet_radius: f32, density: f32) -> Self {
         let lod_system = VegetationLodSystem::new();
-        let instances = Self::generate_grass_instances(planet_radius, density);
+        let density_map = DensityMap::generate_natural(256, 128);
+        let instances = Self::generate_grass_instances(planet_radius, density, &density_map);
 
         Self {
             lod_system,
             instances,
             planet_radius,
+            density_map,
         }
     }
 
     #[allow(clippy::many_single_char_names)]
-    fn generate_grass_instances(planet_radius: f32, density: f32) -> Vec<VegetationInstance> {
+    fn generate_grass_instances(
+        planet_radius: f32,
+        density: f32,
+        density_map: &DensityMap,
+    ) -> Vec<VegetationInstance> {
         let mut instances = Vec::new();
         let mut rng = ChaCha8Rng::seed_from_u64(42);
 
-        // Calculate number of grass blades based on surface area and density
+        // Calculate base number of candidate positions
         let surface_area = 4.0 * std::f32::consts::PI * planet_radius * planet_radius;
-        let num_blades = (surface_area * density) as usize;
+        let num_candidates = (surface_area * density * 2.0) as usize; // Generate more candidates, filter by density
 
-        // Generate grass in clusters for more natural distribution
-        let num_clusters = (num_blades / 20).max(50); // Average 20 blades per cluster
-        let blades_per_cluster = num_blades / num_clusters;
+        // Generate grass using density map
+        for _ in 0..num_candidates {
+            // Generate random position on sphere
+            let u: f32 = rng.gen();
+            let v: f32 = rng.gen();
+            let theta = 2.0 * std::f32::consts::PI * u;
+            let phi = (1.0 - 2.0 * v).acos();
 
-        for _ in 0..num_clusters {
-            // Generate cluster center
-            let cluster_u: f32 = rng.gen();
-            let cluster_v: f32 = rng.gen();
-            let cluster_theta = 2.0 * std::f32::consts::PI * cluster_u;
-            let cluster_phi = (1.0 - 2.0 * cluster_v).acos();
+            // Convert to cartesian coordinates on sphere surface
+            let x = planet_radius * phi.sin() * theta.cos();
+            let y = planet_radius * phi.sin() * theta.sin();
+            let z = planet_radius * phi.cos();
 
-            // Generate blades within this cluster
-            let cluster_spread = 0.1; // Spread radius for cluster
+            let position = Vec3::new(x, y, z);
 
-            for _ in 0..blades_per_cluster {
-                // Add small offset from cluster center
-                let offset_theta = cluster_theta + (rng.gen::<f32>() - 0.5) * cluster_spread;
-                let offset_phi = cluster_phi + (rng.gen::<f32>() - 0.5) * cluster_spread;
+            // Sample density at this position
+            let density_value = density_map.sample_spherical(&position, planet_radius);
 
-                // Convert to cartesian coordinates on sphere surface
-                let x = planet_radius * offset_phi.sin() * offset_theta.cos();
-                let y = planet_radius * offset_phi.sin() * offset_theta.sin();
-                let z = planet_radius * offset_phi.cos();
-
-                let position = Vec3::new(x, y, z);
-
+            // Use density as probability for placing grass
+            if rng.gen::<f32>() < density_value {
                 // Calculate up vector (radial from planet center)
                 let up = position.normalize();
 

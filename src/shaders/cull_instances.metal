@@ -74,8 +74,9 @@ kernel void cull_instances(
     uint lod_level = instance.lod_level;
     
     // Atomically increment instance count for this LOD level
+    device atomic_uint* atomic_ptr = (device atomic_uint*)&draw_args[lod_level].instance_count;
     uint visible_index = atomic_fetch_add_explicit(
-        &draw_args[lod_level].instance_count,
+        atomic_ptr,
         1,
         memory_order_relaxed
     );
