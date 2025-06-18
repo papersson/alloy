@@ -53,13 +53,17 @@ Transform the current basic grass and tree systems into AAA-quality vegetation w
 - [ ] Benchmark and profile
 
 ## Implementation Order
-1. Start with LOD system for existing grass
-2. Add GPU culling infrastructure
-3. Upgrade shading quality
-4. Implement texture arrays
-5. Improve distribution patterns
-6. Apply same improvements to trees
-7. Final optimization pass
+1. ✅ Start with LOD system for existing grass
+2. Modify renderer to support multiple LOD levels:
+   - Update GrassBuffers to store multiple meshes/instances
+   - Render each LOD level separately
+   - Add fade alpha support in shader
+3. Add GPU culling infrastructure
+4. Upgrade shading quality
+5. Implement texture arrays
+6. Improve distribution patterns
+7. Apply same improvements to trees
+8. Final optimization pass
 
 ## Key Files to Modify
 - src/core/grass.rs - LOD generation, distribution

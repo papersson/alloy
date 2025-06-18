@@ -1,33 +1,31 @@
 //! Grass system for rendering instanced grass blades on the spherical world
 
+use crate::core::{LodLevel, VegetationInstance, VegetationLodSystem};
 use crate::math::{Mat4, Vec3, Vec4};
 use crate::scene::{InstanceData, InstancedMesh, Mesh};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 pub struct GrassSystem {
-    instanced_mesh: InstancedMesh,
+    lod_system: VegetationLodSystem,
+    instances: Vec<VegetationInstance>,
     planet_radius: f32,
 }
 
 impl GrassSystem {
     pub fn new(planet_radius: f32, density: f32) -> Self {
-        let base_mesh = Mesh::grass_blade();
+        let lod_system = VegetationLodSystem::new();
         let instances = Self::generate_grass_instances(planet_radius, density);
 
-        let instanced_mesh = InstancedMesh {
-            base_mesh,
-            instances,
-        };
-
         Self {
-            instanced_mesh,
+            lod_system,
+            instances,
             planet_radius,
         }
     }
 
     #[allow(clippy::many_single_char_names)]
-    fn generate_grass_instances(planet_radius: f32, density: f32) -> Vec<InstanceData> {
+    fn generate_grass_instances(planet_radius: f32, density: f32) -> Vec<VegetationInstance> {
         let mut instances = Vec::new();
         let mut rng = ChaCha8Rng::seed_from_u64(42);
 
@@ -114,10 +112,11 @@ impl GrassSystem {
                     -0.05 + (1.0 - color_var) * 0.05, // Inverse correlation with red
                 );
 
-                instances.push(InstanceData {
+                instances.push(VegetationInstance {
                     transform,
                     color_variation,
-                    _padding: 0.0,
+                    lod_level: LodLevel::Full, // Will be updated based on distance
+                    fade_alpha: 1.0,
                 });
             }
         }
@@ -125,7 +124,63 @@ impl GrassSystem {
         instances
     }
 
-    pub fn instanced_mesh(&self) -> &InstancedMesh {
-        &self.instanced_mesh
+    pub fn update(&mut self, view_position: Vec3) {
+        self.lod_system.update_view_position(view_position);
+
+        // Update LOD levels for all instances
+        for instance in &mut self.instances {
+            let instance_pos = Vec3::new(
+                instance.transform.cols[3].x,
+                instance.transform.cols[3].y,
+                instance.transform.cols[3].z,
+            );
+
+            let (lod_level, fade_factor) = self.lod_system.calculate_lod_level(instance_pos);
+            instance.lod_level = lod_level;
+            instance.fade_alpha = if lod_level == LodLevel::Fade {
+                1.0 - fade_factor
+            } else {
+                1.0
+            };
+        }
+    }
+
+    pub fn get_instances_by_lod(&self, lod_level: LodLevel) -> Vec<InstanceData> {
+        self.instances
+            .iter()
+            .filter(|inst| inst.lod_level == lod_level)
+            .map(|inst| InstanceData {
+                transform: inst.transform,
+                color_variation: inst.color_variation,
+                _padding: inst.fade_alpha, // Use padding field for fade alpha
+            })
+            .collect()
+    }
+
+    pub fn get_lod_mesh(&self, lod_level: LodLevel) -> &Mesh {
+        self.lod_system.grass_lods.get_mesh(lod_level)
+    }
+
+    pub fn lod_system(&self) -> &VegetationLodSystem {
+        &self.lod_system
+    }
+
+    // Legacy method for compatibility
+    pub fn instanced_mesh(&self) -> InstancedMesh {
+        // Return full LOD mesh with all instances for now
+        let instances: Vec<InstanceData> = self
+            .instances
+            .iter()
+            .map(|inst| InstanceData {
+                transform: inst.transform,
+                color_variation: inst.color_variation,
+                _padding: inst.fade_alpha,
+            })
+            .collect();
+
+        InstancedMesh {
+            base_mesh: self.lod_system.grass_lods.get_mesh(LodLevel::Full).clone(),
+            instances,
+        }
     }
 }

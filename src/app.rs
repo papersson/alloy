@@ -370,6 +370,18 @@ impl ApplicationHandler for App {
                     }
 
                     camera.update(delta);
+
+                    // Update grass LOD system with camera position
+                    if let Some(grass_system) = &mut self.grass_system {
+                        grass_system.update(camera.position());
+
+                        // Update renderer grass buffers with new LOD data
+                        if let Some(renderer) = &mut self.renderer {
+                            if let Err(e) = renderer.update_grass(grass_system) {
+                                log!("Failed to update grass buffers: {}", e);
+                            }
+                        }
+                    }
                 }
 
                 // Prepare UI rendering

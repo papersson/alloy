@@ -67,6 +67,11 @@ struct GrassBuffers {
     instance_count: usize,
 }
 
+struct GrassLodBuffers {
+    lod_buffers: [Option<GrassBuffers>; 4], // One for each LOD level
+    uniform_buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+}
+
 pub struct SceneRenderer {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     command_queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
@@ -87,7 +92,7 @@ pub struct SceneRenderer {
     camera: Camera,
     mesh_buffers: HashMap<*const Mesh, MeshBuffers>,
     skybox_buffers: Option<MeshBuffers>,
-    grass_buffers: Option<GrassBuffers>,
+    grass_buffers: Option<GrassLodBuffers>,
     road_buffers: Option<MeshBuffers>,
     tree_buffers: Option<GrassBuffers>,
     time: f32,
@@ -539,6 +544,13 @@ impl SceneRenderer {
                 .colorAttachments()
                 .objectAtIndexedSubscript(0);
             color_attachment.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
+
+            // Enable alpha blending for LOD fade transitions
+            color_attachment.setBlendingEnabled(true);
+            color_attachment.setSourceRGBBlendFactor(MTLBlendFactor::SourceAlpha);
+            color_attachment.setDestinationRGBBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
+            color_attachment.setSourceAlphaBlendFactor(MTLBlendFactor::SourceAlpha);
+            color_attachment.setDestinationAlphaBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
         }
 
         pipeline_descriptor.setDepthAttachmentPixelFormat(MTLPixelFormat::Depth32Float);
@@ -898,12 +910,12 @@ impl SceneRenderer {
             render_encoder.setDepthStencilState(Some(&self.depth_stencil_state));
 
             // Render grass if available
-            if let (Some(grass_buffers), Some(grass_pipeline)) =
+            if let (Some(grass_lod_buffers), Some(grass_pipeline)) =
                 (&self.grass_buffers, &self.grass_pipeline_state)
             {
                 render_encoder.setRenderPipelineState(grass_pipeline);
 
-                // Update grass uniforms
+                // Update grass uniforms (shared across all LODs)
                 let grass_uniforms = Uniforms {
                     mvp_matrix: self.camera.view_projection_matrix(), // Not used in grass shader but keeping struct consistent
                     model_matrix: Mat4::identity(),                   // Not used
@@ -926,7 +938,7 @@ impl SceneRenderer {
                 };
 
                 unsafe {
-                    let contents = grass_buffers.uniform_buffer.contents();
+                    let contents = grass_lod_buffers.uniform_buffer.contents();
                     std::ptr::copy_nonoverlapping(
                         &raw const grass_uniforms,
                         contents.as_ptr().cast::<Uniforms>(),
@@ -934,39 +946,44 @@ impl SceneRenderer {
                     );
                 }
 
-                unsafe {
-                    render_encoder.setVertexBuffer_offset_atIndex(
-                        Some(&grass_buffers.vertex_buffer),
-                        0,
-                        0,
-                    );
-                    render_encoder.setVertexBuffer_offset_atIndex(
-                        Some(&grass_buffers.uniform_buffer),
-                        0,
-                        1,
-                    );
-                    render_encoder.setVertexBuffer_offset_atIndex(
-                        Some(&grass_buffers.instance_buffer),
-                        0,
-                        2,
-                    );
+                // Render each LOD level
+                for lod_buffers_option in &grass_lod_buffers.lod_buffers {
+                    if let Some(grass_buffers) = lod_buffers_option {
+                        unsafe {
+                            render_encoder.setVertexBuffer_offset_atIndex(
+                                Some(&grass_buffers.vertex_buffer),
+                                0,
+                                0,
+                            );
+                            render_encoder.setVertexBuffer_offset_atIndex(
+                                Some(&grass_lod_buffers.uniform_buffer),
+                                0,
+                                1,
+                            );
+                            render_encoder.setVertexBuffer_offset_atIndex(
+                                Some(&grass_buffers.instance_buffer),
+                                0,
+                                2,
+                            );
 
-                    render_encoder.setFragmentBuffer_offset_atIndex(
-                        Some(&grass_buffers.uniform_buffer),
-                        0,
-                        1,
-                    );
+                            render_encoder.setFragmentBuffer_offset_atIndex(
+                                Some(&grass_lod_buffers.uniform_buffer),
+                                0,
+                                1,
+                            );
 
-                    // Use drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:instanceCount:
-                    let _: () = msg_send![
-                        &*render_encoder,
-                        drawIndexedPrimitives: MTLPrimitiveType::Triangle,
-                        indexCount: grass_buffers.index_count,
-                        indexType: MTLIndexType::UInt16,
-                        indexBuffer: &*grass_buffers.index_buffer,
-                        indexBufferOffset: 0usize,
-                        instanceCount: grass_buffers.instance_count
-                    ];
+                            // Use drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:instanceCount:
+                            let _: () = msg_send![
+                                &*render_encoder,
+                                drawIndexedPrimitives: MTLPrimitiveType::Triangle,
+                                indexCount: grass_buffers.index_count,
+                                indexType: MTLIndexType::UInt16,
+                                indexBuffer: &*grass_buffers.index_buffer,
+                                indexBufferOffset: 0usize,
+                                instanceCount: grass_buffers.instance_count
+                            ];
+                        }
+                    }
                 }
 
                 // Switch back to regular pipeline
@@ -1313,36 +1330,52 @@ impl SceneRenderer {
         &self.device
     }
 
+    pub fn update_grass(&mut self, grass_system: &GrassSystem) -> Result<(), String> {
+        if let Some(grass_lod_buffers) = &mut self.grass_buffers {
+            // Update instance buffers for each LOD level
+            for i in 0..4 {
+                let lod_level = match i {
+                    0 => crate::core::LodLevel::Full,
+                    1 => crate::core::LodLevel::Reduced,
+                    2 => crate::core::LodLevel::Billboard,
+                    3 => crate::core::LodLevel::Fade,
+                    _ => unreachable!(),
+                };
+
+                let instances = grass_system.get_instances_by_lod(lod_level);
+
+                if !instances.is_empty() {
+                    if let Some(grass_buffers) = &mut grass_lod_buffers.lod_buffers[i] {
+                        // Update instance buffer with new data
+                        let instance_data = instances.as_slice();
+                        let _instance_buffer_size = std::mem::size_of_val(instance_data);
+
+                        // Only update if instance count hasn't changed dramatically
+                        // (In a real implementation, we'd handle dynamic reallocation)
+                        if instances.len() == grass_buffers.instance_count {
+                            unsafe {
+                                let contents = grass_buffers.instance_buffer.contents();
+                                std::ptr::copy_nonoverlapping(
+                                    instance_data.as_ptr(),
+                                    contents.as_ptr().cast(),
+                                    instances.len(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn initialize_grass(&mut self, grass_system: &GrassSystem) -> Result<(), String> {
         // Create grass pipeline if not already created
         if self.grass_pipeline_state.is_none() {
             self.grass_pipeline_state = Some(Self::create_grass_pipeline_state(&self.device)?);
         }
 
-        let instanced_mesh = grass_system.instanced_mesh();
-
-        // Create buffers
-        let vertex_buffer = Self::create_vertex_buffer(&self.device, &instanced_mesh.base_mesh)?;
-        let index_buffer = Self::create_index_buffer(&self.device, &instanced_mesh.base_mesh)?;
-
-        // Create instance buffer
-        let instance_data = instanced_mesh.instances.as_slice();
-        let instance_buffer_size = std::mem::size_of_val(instance_data);
-
-        let instance_data_ptr =
-            std::ptr::NonNull::new(instance_data.as_ptr().cast::<std::ffi::c_void>().cast_mut())
-                .ok_or_else(|| "Failed to create NonNull pointer for instance data".to_string())?;
-
-        let instance_buffer = unsafe {
-            self.device.newBufferWithBytes_length_options(
-                instance_data_ptr,
-                instance_buffer_size,
-                MTLResourceOptions::empty(),
-            )
-        }
-        .ok_or_else(|| "Failed to create instance buffer".to_string())?;
-
-        // Create uniform buffer for grass
+        // Create uniform buffer for grass (shared across all LODs)
         let uniform_buffer = self
             .device
             .newBufferWithLength_options(
@@ -1351,13 +1384,67 @@ impl SceneRenderer {
             )
             .ok_or_else(|| "Failed to create grass uniform buffer".to_string())?;
 
-        self.grass_buffers = Some(GrassBuffers {
-            vertex_buffer,
-            index_buffer,
-            instance_buffer,
+        // Create buffers for each LOD level
+        let mut lod_buffers: [Option<GrassBuffers>; 4] = [None, None, None, None];
+
+        for i in 0..4 {
+            let lod_level = match i {
+                0 => crate::core::LodLevel::Full,
+                1 => crate::core::LodLevel::Reduced,
+                2 => crate::core::LodLevel::Billboard,
+                3 => crate::core::LodLevel::Fade,
+                _ => unreachable!(),
+            };
+
+            let lod_mesh = grass_system.get_lod_mesh(lod_level);
+            let instances = grass_system.get_instances_by_lod(lod_level);
+
+            if !instances.is_empty() {
+                // Create vertex and index buffers for this LOD mesh
+                let vertex_buffer = Self::create_vertex_buffer(&self.device, lod_mesh)?;
+                let index_buffer = Self::create_index_buffer(&self.device, lod_mesh)?;
+
+                // Create instance buffer
+                let instance_data = instances.as_slice();
+                let instance_buffer_size = std::mem::size_of_val(instance_data);
+
+                let instance_data_ptr = std::ptr::NonNull::new(
+                    instance_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
+                )
+                .ok_or_else(|| "Failed to create NonNull pointer for instance data".to_string())?;
+
+                let instance_buffer = unsafe {
+                    self.device.newBufferWithBytes_length_options(
+                        instance_data_ptr,
+                        instance_buffer_size,
+                        MTLResourceOptions::empty(),
+                    )
+                }
+                .ok_or_else(|| "Failed to create instance buffer".to_string())?;
+
+                // Create per-LOD uniform buffer (not used currently, but available for future use)
+                let lod_uniform_buffer = self
+                    .device
+                    .newBufferWithLength_options(
+                        std::mem::size_of::<Uniforms>(),
+                        MTLResourceOptions::empty(),
+                    )
+                    .ok_or_else(|| "Failed to create LOD uniform buffer".to_string())?;
+
+                lod_buffers[i] = Some(GrassBuffers {
+                    vertex_buffer,
+                    index_buffer,
+                    instance_buffer,
+                    uniform_buffer: lod_uniform_buffer,
+                    index_count: lod_mesh.indices.len(),
+                    instance_count: instances.len(),
+                });
+            }
+        }
+
+        self.grass_buffers = Some(GrassLodBuffers {
+            lod_buffers,
             uniform_buffer,
-            index_count: instanced_mesh.base_mesh.indices.len(),
-            instance_count: instanced_mesh.instances.len(),
         });
 
         Ok(())

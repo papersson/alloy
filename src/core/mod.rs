@@ -12,6 +12,7 @@ mod skybox;
 mod spherical_world;
 mod texture;
 mod tree;
+mod vegetation_lod;
 
 pub use grass::GrassSystem;
 pub use gravity::GravitySystem;
@@ -20,6 +21,7 @@ pub use skybox::Skybox;
 pub use spherical_world::SphericalWorld;
 pub use texture::{Texture, TextureFormat};
 pub use tree::TreeSystem;
+pub use vegetation_lod::{GrassLodMeshes, LodLevel, VegetationInstance, VegetationLodSystem};
 
 use std::time::Instant;
 

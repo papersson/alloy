@@ -40,6 +40,7 @@ struct VertexOut {
     float3 world_pos;
     float3 normal;
     float3 color_variation;
+    float fade_alpha;
 };
 
 vertex VertexOut grass_vertex(
@@ -93,6 +94,7 @@ vertex VertexOut grass_vertex(
     
     out.tex_coord = in.tex_coord;
     out.color_variation = instance.color_variation;
+    out.fade_alpha = instance._padding; // Using padding field for fade alpha
     
     return out;
 }
@@ -138,5 +140,6 @@ fragment float4 grass_fragment(
     
     result = mix(result, current_fog_color, fog_factor);
     
-    return float4(result, 1.0);
+    // Apply LOD fade alpha for smooth transitions
+    return float4(result, in.fade_alpha);
 }
